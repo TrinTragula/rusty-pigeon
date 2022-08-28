@@ -1,0 +1,16 @@
+{
+  "name": "rustypigeonwasm",
+  "collaborators": [
+    "TrinTragula <danielescarinc42@gmail.com>"
+  ],
+  "version": "1.0.0",
+  "files": [
+    "rustypigeonwasm_bg.wasm",
+    "rustypigeonwasm.js",
+    "rustypigeonwasm_bg.js",
+    "rustypigeonwasm.d.ts"
+  ],
+  "module": "rustypigeonwasm.js",
+  "types": "rustypigeonwasm.d.ts",
+  "sideEffects": false
+}

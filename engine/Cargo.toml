@@ -1,0 +1,12 @@
+[package]
+name = "rustypigeon"
+version = "1.0.0"
+edition = "2021"
+authors = ["TrinTragula <danielescarinc42@gmail.com>"]
+
+[dependencies]
+rustypigeonlib = { version = "*", path = "../" }
+
+[profile.release]
+lto = true
+codegen-units = 1

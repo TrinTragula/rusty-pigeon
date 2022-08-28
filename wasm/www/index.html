@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="format-detection" content="telephone=no" />
+  <meta name="viewport"
+    content="user-scalable=no, initial-scale=1, maximum-scale=1, minimum-scale=1, width=device-width, height=device-height" />
+  <title>Play Rusty Pigeon</title>
+  <link rel="stylesheet" href="/themes/chessground.base.css" crossorigin="anonymous">
+  <link rel="stylesheet" href="/themes/chessground.brown.css" crossorigin="anonymous">
+  <link rel="stylesheet" href="/themes/chessground.cburnett.css" crossorigin="anonymous">
+  <link rel="stylesheet" href="/index.css" crossorigin="anonymous">
+  <script src="/js/chess.min.js"></script>
+  <script src="./bootstrap.js"></script>
+</head>
+
+<body>
+  <noscript>This page contains webassembly and javascript content, please enable javascript in your browser.</noscript>
+  <div style="display: flex; flex-direction: column; align-items: center; width: 100%;">
+    <h3 style="font-family: monospace;">Play against Rusty Pigeon <a
+        href="https://github.com/TrinTragula/rusty-pigeon">(source)</a></h3>
+    <div id="control-panel"
+      style="display: flex; flex-direction: row; justify-content: center; align-items: center; font-family: monospace;">
+      <label for="movetime">Time to move (s)</label>
+      <input style="margin-left: 5px; width: 3rem;" id="movetime" type="number" value="5" />
+      <button id="playAsWhite" style="margin-left: 5px;">Play as white</button>
+      <button id="playAsBlack" style="margin-left: 5px;">Play as black</button>
+    </div>
+    <div style="font-family: monospace; padding: 5px;" id="status">Let's play!</div>
+    <div id="chessboard" class="cg-wrap" style="width: 100%;"></div>
+  </div>
+</body>
+
+</html>
