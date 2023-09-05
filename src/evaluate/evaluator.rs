@@ -12,8 +12,8 @@ use rustc_hash::FxHashMap;
 use crate::{
     board::models::{Engine, Piece, PiecePosition, Position, Side},
     constants::{
-        BISHOP_VALUE, CAPTURE_VALUE, KING_VALUE, KNIGHT_VALUE, MATE_VALUE, PAWN_VALUE, QUEEN_VALUE,
-        ROOK_VALUE, SILENT_MOVE_VALUE, BISHOP_PAIR_VALUE,
+        BISHOP_PAIR_VALUE, BISHOP_VALUE, CAPTURE_VALUE, KING_VALUE, KNIGHT_VALUE, MATE_VALUE,
+        PAWN_VALUE, QUEEN_VALUE, ROOK_VALUE, SILENT_MOVE_VALUE,
     },
     movegen::generator::{MoveGenKind, MoveGenerator, MoveInfo},
     uci::{options::GoOptions, protocol::UCI},
@@ -31,7 +31,7 @@ pub struct Evaluate;
 impl Evaluate {
     // todo: Evaluate pawn structures
     // todo: Incremental evaluation of pieces (each move check the change in piece value)
-
+    
     pub fn eval_for_uci(
         engine: &mut Engine,
         command: &str,
@@ -46,10 +46,13 @@ impl Evaluate {
         let alpha = -isize::MAX;
         let beta = isize::MAX;
         engine.is_searching = true;
-        engine.current_best_move = [None, None, None, None, None, None, None, None, None, None];
+        engine.current_best_move = None;
 
-        let (max_depth, time_to_move_ms) =
-            GoOptions::parse_uci_options(options, engine.position.side_to_move.0, engine.position.half_move_number);
+        let (max_depth, time_to_move_ms) = GoOptions::parse_uci_options(
+            options,
+            engine.position.side_to_move.0,
+            engine.position.half_move_number,
+        );
         let start = Instant::now();
 
         let mut prev_ordered_moves: Option<Vec<MoveInfo>> = None;
@@ -135,6 +138,7 @@ impl Evaluate {
                 true
             };
 
+            let mut line: [Option<MoveInfo>; 10] = [None, None, None, None, None, None, None, None, None, None];
             let score = if write_table {
                 -Self::alpha_beta(
                     engine,
@@ -145,6 +149,7 @@ impl Evaluate {
                     rx,
                     time_to_move_ms,
                     start,
+                    &mut line,
                 )
             } else {
                 cached_score
@@ -188,21 +193,28 @@ impl Evaluate {
 
             if score > alpha {
                 alpha = score;
-                engine.current_best_move[0] = Some(m.clone());
+                engine.current_best_move = Some(m.clone());
 
-                let mut pv = String::from("");
-                for m in &engine.current_best_move {
-                    if m.is_none() {
-                        break;
-                    }
-                    pv.push_str(&format!(" {}", m.clone().unwrap()));
-                }
                 let score_cp = match original_side {
                     Side::WHITE => score,
                     Side::BLACK => -score,
                     _ => 0,
                 };
-                println!("info score cp {score_cp} pv{pv} depth {depth}");
+
+                let pv_enabled = true;
+                if pv_enabled {
+                    let mut pv = String::from("");
+                    pv.push_str(&format!(" {}", m.clone()));
+
+                    for m in line {
+                        if m.is_some() {
+                            pv.push_str(&format!(" {}", m.unwrap().clone()));
+                        }
+                    }
+                    println!("info score cp {score_cp} pv{pv} depth {depth}");
+                } else {
+                    println!("info score cp {score_cp} depth {depth}");
+                }
             }
         }
 
@@ -219,6 +231,7 @@ impl Evaluate {
         rx: &Option<Arc<Mutex<Receiver<&str>>>>,
         time_to_move_ms: Option<u128>,
         start: Instant,
+        prev_line: &mut [Option<MoveInfo>],
     ) -> isize {
         if depth_left == 0 {
             let quiesce_score = Self::quiesce(engine, alpha, beta);
@@ -246,7 +259,7 @@ impl Evaluate {
                 let unwrapped = cached_zobrist.unwrap();
                 cached_triplet = unwrapped[depth_left - 1];
                 let mut iter = depth_left;
-                while cached_triplet.is_none() {
+                                while cached_triplet.is_none() {
                     cached_triplet = unwrapped[iter];
                     iter += 1;
                     if iter >= 10 {
@@ -268,6 +281,7 @@ impl Evaluate {
             };
 
             let score;
+            let mut line: [Option<MoveInfo>; 10] = [None, None, None, None, None, None, None, None, None, None];
             if write_table {
                 if search_pv {
                     score = -Self::alpha_beta(
@@ -279,6 +293,7 @@ impl Evaluate {
                         rx,
                         time_to_move_ms,
                         start,
+                        &mut line,
                     );
                 } else {
                     let null_window_score = -Self::zero_width_search(
@@ -301,6 +316,7 @@ impl Evaluate {
                             rx,
                             time_to_move_ms,
                             start,
+                            &mut line,
                         );
                     } else {
                         score = null_window_score;
@@ -344,7 +360,10 @@ impl Evaluate {
                 alpha = score;
                 search_pv = false;
 
-                engine.current_best_move[actual_depth] = Some(m.clone());
+                prev_line[actual_depth] = Some(m.clone());
+                for i in (actual_depth+1)..10 {
+                    prev_line[i] = line[i-1].clone();
+                }
             }
         }
         if let Some(value) = Self::check_mate_or_stalemate(engine, tot_moves, actual_depth) {
@@ -389,15 +408,14 @@ impl Evaluate {
                 start,
             );
 
-            if Self::check_should_exit(engine, rx, time_to_move_ms, start) {
-                engine.undo_move(&m);
-                break;
-            }
-
             engine.undo_move(&m);
 
             if score >= beta {
                 return beta;
+            }
+
+            if Self::check_should_exit(engine, rx, time_to_move_ms, start) {
+                break;
             }
         }
         if let Some(value) = Self::check_mate_or_stalemate(engine, tot_moves, actual_depth) {
@@ -532,7 +550,6 @@ impl Evaluate {
         result
     }
 
-    #[inline(always)]
     pub fn get_pieces_value(
         board: &PiecePosition,
         side: &Side,
@@ -691,7 +708,6 @@ impl Evaluate {
         result
     }
 
-    #[inline(always)]
     pub fn get_piece_square_table_value(
         board: &PiecePosition,
         side: usize,
@@ -712,7 +728,6 @@ impl Evaluate {
         result
     }
 
-    #[inline(always)]
     pub fn is_end_game(position: &mut Position) -> bool {
         // todo: Do we need a better end game definition?
         position.board.pieces[Side::WHITE][Piece::QUEEN].0 == 0
@@ -786,7 +801,7 @@ impl Evaluate {
                 // That's a mate, mate
                 return Some(-(MATE_VALUE - (actual_depth as isize)));
             } else {
-                // That's a stale mate, return a draw
+                // That's a stale mate, signal a draw
                 return Some(0);
             }
         }

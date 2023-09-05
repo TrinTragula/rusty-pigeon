@@ -25,7 +25,6 @@ pub struct MoveInfo {
     pub captured_piece: Option<usize>,
 }
 impl MoveInfo {
-    #[inline(always)]
     pub fn get_value(&self, _e: &Engine) -> isize {
         if let Move::Promotion(_, _, _) = self.m {
             // Promotions always go first
@@ -50,26 +49,17 @@ impl MoveInfo {
 
 impl MoveGenerator {
     pub fn get_ordered_moves(e: &mut Engine) -> Vec<MoveInfo> {
-        let mut moves: Vec<MoveInfo> = Self::get_pseudo_legal_moves(&e.position, &MoveGenKind::All);
-        moves = moves
-            .into_iter()
-            .filter(|m| Self::is_legal(&mut e.position, m))
-            .collect();
+        let mut moves: Vec<MoveInfo> = Self::get_legal_moves(&mut e.position, &MoveGenKind::All);
         Self::sort_moves(&mut moves, e);
         moves
     }
 
-    #[inline(always)]
     pub fn sort_moves(moves: &mut [MoveInfo], e: &mut Engine) {
         moves.sort_by(|a, b| b.get_value(e).cmp(&a.get_value(e)));
     }
 
     pub fn get_ordered_moves_by_kind(e: &mut Engine, move_gen_kind: MoveGenKind) -> Vec<MoveInfo> {
-        let mut moves: Vec<MoveInfo> = Self::get_pseudo_legal_moves(&e.position, &move_gen_kind);
-        moves = moves
-            .into_iter()
-            .filter(|m| Self::is_legal(&mut e.position, m))
-            .collect();
+        let mut moves: Vec<MoveInfo> = Self::get_legal_moves(&mut e.position, &move_gen_kind);
 
         Self::sort_moves(&mut moves, e);
 
@@ -81,7 +71,7 @@ impl MoveGenerator {
             let king = new_pos.board.pieces[new_pos.side_to_move.0][Piece::KING].0;
             let square_index = king.trailing_zeros();
             let king_square = 1u64 << square_index;
-            if Self::are_attacked(
+            if Self::are_attacked_for_castling(
                 new_pos,
                 king_square,
                 vec![Square::E1, Square::F1, Square::G1],
@@ -92,7 +82,7 @@ impl MoveGenerator {
             let king = new_pos.board.pieces[new_pos.side_to_move.0][Piece::KING].0;
             let square_index = king.trailing_zeros();
             let king_square = 1u64 << square_index;
-            if Self::are_attacked(
+            if Self::are_attacked_for_castling(
                 new_pos,
                 king_square,
                 vec![Square::E1, Square::D1, Square::C1],
@@ -103,7 +93,7 @@ impl MoveGenerator {
             let king = new_pos.board.pieces[new_pos.side_to_move.0][Piece::KING].0;
             let square_index = king.trailing_zeros();
             let king_square = 1u64 << square_index;
-            if Self::are_attacked(
+            if Self::are_attacked_for_castling(
                 new_pos,
                 king_square,
                 vec![Square::E8, Square::F8, Square::G8],
@@ -114,7 +104,7 @@ impl MoveGenerator {
             let king = new_pos.board.pieces[new_pos.side_to_move.0][Piece::KING].0;
             let square_index = king.trailing_zeros();
             let king_square = 1u64 << square_index;
-            if Self::are_attacked(
+            if Self::are_attacked_for_castling(
                 new_pos,
                 king_square,
                 vec![Square::E8, Square::D8, Square::C8],
@@ -127,7 +117,6 @@ impl MoveGenerator {
         true
     }
 
-    #[inline(always)]
     // Check if something can eat the king
     pub fn is_check(pos: &mut Position, m: &MoveInfo) -> bool {
         pos.apply_move(m);
@@ -138,6 +127,7 @@ impl MoveGenerator {
             // We need this move to be legal for evaluation reasons
             // (otherwise we would need to add weird checks on evaluation, because here later
             // we would try to generate for the non existant opposite king)
+            pos.undo_move(&m);
             return true;
         }
         let result = Self::is_position_check(pos);
@@ -145,7 +135,6 @@ impl MoveGenerator {
         result
     }
 
-    #[inline(always)]
     pub fn is_position_check(pos: &mut Position) -> bool {
         let king = pos.board.pieces[pos.opposite_side()][Piece::KING].0;
         let square_index = king.trailing_zeros();
@@ -159,8 +148,11 @@ impl MoveGenerator {
         })
     }
 
-    #[inline(always)]
-    pub fn are_attacked(pos: &mut Position, king_square: u64, squares: Vec<u64>) -> bool {
+    pub fn are_attacked_for_castling(
+        pos: &mut Position,
+        king_square: u64,
+        squares: Vec<u64>,
+    ) -> bool {
         for square in squares {
             if Self::is_check(
                 pos,
@@ -191,6 +183,54 @@ impl MoveGenerator {
         moves.extend(Self::get_bishop_moves(pos, move_gen_kind));
         // Queen
         moves.extend(Self::get_queen_moves(pos, move_gen_kind));
+
+        moves
+    }
+
+    pub fn get_legal_moves(mut pos: &mut Position, move_gen_kind: &MoveGenKind) -> Vec<MoveInfo> {
+        let mut moves: Vec<MoveInfo> = vec![];
+
+        // Pawn
+        let pawn_moves: Vec<MoveInfo> = Self::get_pawn_moves(pos, move_gen_kind)
+            .into_iter()
+            .filter(|m| Self::is_legal(&mut pos, m))
+            .collect();
+        moves.extend(pawn_moves);
+
+        // Knights
+        let knight_moves: Vec<MoveInfo> = Self::get_knight_moves(pos, move_gen_kind)
+            .into_iter()
+            .filter(|m| Self::is_legal(&mut pos, m))
+            .collect();
+        moves.extend(knight_moves);
+
+        // King
+        let king_moves: Vec<MoveInfo> = Self::get_king_moves(pos, move_gen_kind)
+            .into_iter()
+            .filter(|m| Self::is_legal(&mut pos, m))
+            .collect();
+        moves.extend(king_moves);
+
+        // Rook
+        let rook_moves: Vec<MoveInfo> = Self::get_rook_moves(pos, move_gen_kind)
+            .into_iter()
+            .filter(|m| Self::is_legal(&mut pos, m))
+            .collect();
+        moves.extend(rook_moves);
+
+        // Bishop
+        let bishop_moves: Vec<MoveInfo> = Self::get_bishop_moves(pos, move_gen_kind)
+            .into_iter()
+            .filter(|m| Self::is_legal(&mut pos, m))
+            .collect();
+        moves.extend(bishop_moves);
+
+        // Queen
+        let queen_moves: Vec<MoveInfo> = Self::get_queen_moves(pos, move_gen_kind)
+            .into_iter()
+            .filter(|m| Self::is_legal(&mut pos, m))
+            .collect();
+        moves.extend(queen_moves);
 
         moves
     }
@@ -244,7 +284,7 @@ impl MoveGenerator {
                     }
                 }
                 MoveGenKind::OnlySilent => {
-                    move_mask &= !Self::get_occupancy(pos);
+                    move_mask &= !occupancy;
                     while move_mask > 0 {
                         let move_square_index = move_mask.trailing_zeros();
                         let move_square = 1u64 << move_square_index;
@@ -786,23 +826,19 @@ impl MoveGenerator {
         moves
     }
 
-    #[inline(always)]
     fn is_square_empty(pos: &Position, square: u64) -> bool {
         ((pos.board.side_pieces[Side::WHITE].0 | pos.board.side_pieces[Side::BLACK].0) & square)
             == 0
     }
 
-    #[inline(always)]
     fn get_occupancy(pos: &Position) -> u64 {
         pos.board.side_pieces[Side::WHITE].0 | pos.board.side_pieces[Side::BLACK].0
     }
 
-    #[inline(always)]
     fn is_square_enemy(pos: &Position, square: u64) -> bool {
         (pos.board.side_pieces[pos.opposite_side()].0 & square) > 0
     }
 
-    #[inline(always)]
     fn get_enemy_piece_in_square(
         pos: &Position,
         square: u64,

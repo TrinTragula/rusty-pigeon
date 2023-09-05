@@ -1,5 +1,5 @@
 const HELP_MESSAGE: &str = "
-Rusty Pigeon, a kinda good chess engine written in rust.
+Rusty Pigeon v0.4.0, a kinda good chess engine written in rust.
 Made by TrinTragula in 2022 (https://github.com/TrinTragula).
 
 Without arguments, starts as an UCI engine.
@@ -127,7 +127,7 @@ fn loop_game(fen: &str, player_play_as_black: bool, auto_play: bool) {
         } else {
             println!("Rusty Pigeon is thinking...");
             Evaluate::search(&mut engine, GoOptions::movetime(5000), None);
-            engine.apply_move(&engine.current_best_move[0].clone().unwrap());
+            engine.apply_move(&engine.current_best_move.clone().unwrap());
         }
         clear_terminal();
         println!("{}", engine);

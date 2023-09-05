@@ -12,7 +12,7 @@ use super::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Engine {
     pub position: Position,
-    pub current_best_move: [Option<MoveInfo>; 10],
+    pub current_best_move: Option<MoveInfo>,
     pub is_searching: bool,
     pub is_configuring: bool,
     pub zobrist_table: FxHashMap<u64, [Option<(isize, isize, isize)>; 10]>,
@@ -22,7 +22,7 @@ impl Engine {
     pub fn empty() -> Engine {
         Engine {
             position: Position::empty(),
-            current_best_move: [None, None, None, None, None, None, None, None, None, None],
+            current_best_move: None,
             is_searching: false,
             is_configuring: false,
             zobrist_table: FxHashMap::default(),
@@ -33,7 +33,7 @@ impl Engine {
     pub fn from_position(position: Position) -> Engine {
         Engine {
             position,
-            current_best_move: [None, None, None, None, None, None, None, None, None, None],
+            current_best_move: None,
             is_searching: false,
             is_configuring: false,
             zobrist_table: FxHashMap::default(),
@@ -151,7 +151,6 @@ impl Position {
     }
 
     // Set a piece, dumb way to set a square to a piece, only used while parsing FENs
-    #[inline(always)]
     pub fn set_piece(&mut self, pos: u64, side: usize, piece: usize) {
         self.board.side_pieces[side].0 |= pos;
         self.board.pieces[side][piece].0 |= pos;
@@ -160,75 +159,76 @@ impl Position {
     // Rapidly undos the last move that was made by the engine
     pub fn undo_move(&mut self, m: &MoveInfo) {
         self.side_to_move = Side(self.opposite_side());
+        let is_capture = m.captured_piece.is_some();
         match m.m {
             // Normal move
             Move::Normal(from, to) => {
                 // Change back side reprs
-                self.set_side_pieces_from_move(to, from, false);
+                self.set_side_pieces_back_from_move(to, from, is_capture);
                 // Move the piece back
                 self.board.pieces[self.side_to_move.0][m.piece].0 &= !to;
                 self.board.pieces[self.side_to_move.0][m.piece].0 |= from;
                 if let Some(captured) = m.captured_piece {
                     // Place back the captured piece
-                    self.set_piece(to, self.opposite_side(), captured);
+                    self.board.pieces[self.opposite_side()][captured].0 |= to;
                 }
             }
             // Promotion
             Move::Promotion(from, to, piece) => {
                 // Change back side reprs
-                self.set_side_pieces_from_move(to, from, false);
+                self.set_side_pieces_back_from_move(to, from, is_capture);
                 // Move the piece back
                 self.board.pieces[self.side_to_move.0][piece].0 &= !to;
                 self.board.pieces[self.side_to_move.0][Piece::PAWN].0 |= from;
                 if let Some(captured) = m.captured_piece {
                     // Place back the captured piece
-                    self.set_piece(to, self.opposite_side(), captured);
+                    self.board.pieces[self.opposite_side()][captured].0 |= to;
                 }
             }
             // En passant
             Move::EnPassant(from, to) => {
-                // Change back side reprs
-                self.set_side_pieces_from_move(to, from, false);
-                // Move the piece back
-                self.board.pieces[self.side_to_move.0][Piece::PAWN].0 &= !to;
-                self.board.pieces[self.side_to_move.0][Piece::PAWN].0 |= from;
                 // Add back the captured pawn
                 let square_to_populate = if self.side_to_move.0 == Side::WHITE {
                     to.wrapping_shr(8)
                 } else {
                     to.wrapping_shl(8)
                 };
-                self.set_piece(square_to_populate, self.opposite_side(), Piece::PAWN);
+                // Change back side reprs
+                self.set_side_pieces_back_from_enpassant(to, from, square_to_populate);
+                // Move the piece back
+                self.board.pieces[self.side_to_move.0][Piece::PAWN].0 &= !to;
+                self.board.pieces[self.side_to_move.0][Piece::PAWN].0 |= from;
+                self.board.pieces[self.opposite_side()][Piece::PAWN].0 |= square_to_populate;
             }
             // Castle
             Move::Castle(castling) => match castling {
                 Castling::WHITE_KING_SIDE => {
-                    self.set_side_pieces_from_move(Square::G1, Square::E1, false);
-                    self.set_side_pieces_from_move(Square::F1, Square::H1, false);
+                    self.set_side_pieces_back_from_move(Square::G1, Square::E1, false);
+                    self.set_side_pieces_back_from_move(Square::F1, Square::H1, false);
                     self.board.pieces[self.side_to_move.0][Piece::KING].0 &= !Square::G1;
                     self.board.pieces[self.side_to_move.0][Piece::KING].0 |= Square::E1;
                     self.board.pieces[self.side_to_move.0][Piece::ROOK].0 &= !Square::F1;
                     self.board.pieces[self.side_to_move.0][Piece::ROOK].0 |= Square::H1;
                 }
                 Castling::WHITE_QUEEN_SIDE => {
-                    self.set_side_pieces_from_move(Square::C1, Square::E1, false);
-                    self.set_side_pieces_from_move(Square::D1, Square::A1, false);
+                    self.set_side_pieces_back_from_move(Square::C1, Square::E1, false);
+                    self.set_side_pieces_back_from_move(Square::D1, Square::A1, false);
                     self.board.pieces[self.side_to_move.0][Piece::KING].0 &= !Square::C1;
                     self.board.pieces[self.side_to_move.0][Piece::KING].0 |= Square::E1;
                     self.board.pieces[self.side_to_move.0][Piece::ROOK].0 &= !Square::D1;
                     self.board.pieces[self.side_to_move.0][Piece::ROOK].0 |= Square::A1;
                 }
                 Castling::BLACK_KING_SIDE => {
-                    self.set_side_pieces_from_move(Square::G8, Square::E8, false);
-                    self.set_side_pieces_from_move(Square::F8, Square::H8, false);
+                    self.set_side_pieces_back_from_move(Square::G8, Square::E8, false);
+                    self.set_side_pieces_back_from_move(Square::F8, Square::H8, false);
                     self.board.pieces[self.side_to_move.0][Piece::KING].0 &= !Square::G8;
                     self.board.pieces[self.side_to_move.0][Piece::KING].0 |= Square::E8;
                     self.board.pieces[self.side_to_move.0][Piece::ROOK].0 &= !Square::F8;
                     self.board.pieces[self.side_to_move.0][Piece::ROOK].0 |= Square::H8;
                 }
                 Castling::BLACK_QUEEN_SIDE => {
-                    self.set_side_pieces_from_move(Square::C8, Square::E8, false);
-                    self.set_side_pieces_from_move(Square::D8, Square::A8, false);
+                    self.set_side_pieces_back_from_move(Square::C8, Square::E8, false);
+                    self.set_side_pieces_back_from_move(Square::D8, Square::A8, false);
                     self.board.pieces[self.side_to_move.0][Piece::KING].0 &= !Square::C8;
                     self.board.pieces[self.side_to_move.0][Piece::KING].0 |= Square::E8;
                     self.board.pieces[self.side_to_move.0][Piece::ROOK].0 &= !Square::D8;
@@ -320,7 +320,13 @@ impl Position {
                 // Update side reprs
                 self.set_side_pieces_from_move(from, to, is_capture);
 
-                self.promote_from_move(from, to, piece, move_action.captured_piece, &mut new_zobrist);
+                self.promote_from_move(
+                    from,
+                    to,
+                    piece,
+                    move_action.captured_piece,
+                    &mut new_zobrist,
+                );
 
                 if is_capture && move_action.captured_piece.unwrap() == Piece::ROOK {
                     let opposite_queen_rook_square = if self.side_to_move.0 == Side::WHITE {
@@ -341,41 +347,67 @@ impl Position {
             }
             // En passant
             Move::EnPassant(from, to) => {
-                // Update side reprs
-                self.set_side_pieces_from_move(from, to, true);
-
-                // Move the pawn
-                self.remove_piece(self.side_to_move.0, Piece::PAWN, from, &mut new_zobrist);
-                self.add_piece(self.side_to_move.0, Piece::PAWN, to, &mut new_zobrist);
-
                 // Remove the captured pawn
                 let square_to_capture = if self.side_to_move.0 == Side::WHITE {
                     to.wrapping_shr(8)
                 } else {
                     to.wrapping_shl(8)
                 };
-                self.remove_piece(self.opposite_side(), Piece::PAWN, square_to_capture, &mut new_zobrist);
+                // Update side reprs
+                self.set_side_pieces_from_enpassant(from, to, square_to_capture);
 
-                self.board.side_pieces[self.opposite_side()].0 =
-                    self.board.side_pieces[self.opposite_side()].0 & !square_to_capture;
+                // Move the pawn
+                self.remove_piece(self.side_to_move.0, Piece::PAWN, from, &mut new_zobrist);
+                self.add_piece(self.side_to_move.0, Piece::PAWN, to, &mut new_zobrist);
+
+                self.remove_piece(
+                    self.opposite_side(),
+                    Piece::PAWN,
+                    square_to_capture,
+                    &mut new_zobrist,
+                );
             }
             // Castle
             Move::Castle(castling) => match castling {
                 Castling::WHITE_KING_SIDE => {
                     has_king_rook_moved = true;
-                    self.castle(Square::E1, Square::G1, Square::H1, Square::F1, &mut new_zobrist);
+                    self.castle(
+                        Square::E1,
+                        Square::G1,
+                        Square::H1,
+                        Square::F1,
+                        &mut new_zobrist,
+                    );
                 }
                 Castling::WHITE_QUEEN_SIDE => {
                     has_queen_rook_moved = true;
-                    self.castle(Square::E1, Square::C1, Square::A1, Square::D1, &mut new_zobrist);
+                    self.castle(
+                        Square::E1,
+                        Square::C1,
+                        Square::A1,
+                        Square::D1,
+                        &mut new_zobrist,
+                    );
                 }
                 Castling::BLACK_KING_SIDE => {
                     has_king_rook_moved = true;
-                    self.castle(Square::E8, Square::G8, Square::H8, Square::F8, &mut new_zobrist);
+                    self.castle(
+                        Square::E8,
+                        Square::G8,
+                        Square::H8,
+                        Square::F8,
+                        &mut new_zobrist,
+                    );
                 }
                 Castling::BLACK_QUEEN_SIDE => {
                     has_queen_rook_moved = true;
-                    self.castle(Square::E8, Square::C8, Square::A8, Square::D8, &mut new_zobrist);
+                    self.castle(
+                        Square::E8,
+                        Square::C8,
+                        Square::A8,
+                        Square::D8,
+                        &mut new_zobrist,
+                    );
                 }
                 _ => {}
             },
@@ -383,6 +415,8 @@ impl Position {
 
         // Add to number of moves
         self.half_move_number += 1;
+
+        // ** Modify the state **
 
         // Add half moves since capture
         new_state.since_last_capture = if is_capture {
@@ -482,21 +516,32 @@ impl Position {
         self.state = Arc::new(new_state);
     }
 
-    #[inline(always)]
-    fn remove_piece(&mut self, side: usize, piece: usize, from: u64, new_zobrist: &mut ZobristValue) {
+    fn remove_piece(
+        &mut self,
+        side: usize,
+        piece: usize,
+        from: u64,
+        new_zobrist: &mut ZobristValue,
+    ) {
         let square = from.trailing_zeros();
         new_zobrist.hash ^= self.zobrist_hashes.piece(side, piece, square as usize).hash;
         self.board.pieces[side][piece].0 &= !from;
     }
 
-    #[inline(always)]
     fn add_piece(&mut self, side: usize, piece: usize, to: u64, new_zobrist: &mut ZobristValue) {
         let square = to.trailing_zeros();
         new_zobrist.hash ^= self.zobrist_hashes.piece(side, piece, square as usize).hash;
         self.board.pieces[side][piece].0 |= to;
     }
 
-    fn castle(&mut self, from: u64, to: u64, from_rook: u64, to_rook: u64, new_zobrist: &mut ZobristValue) {
+    fn castle(
+        &mut self,
+        from: u64,
+        to: u64,
+        from_rook: u64,
+        to_rook: u64,
+        new_zobrist: &mut ZobristValue,
+    ) {
         // King
         // Update side reprs
         self.set_side_pieces_from_move(from, to, false);
@@ -511,7 +556,13 @@ impl Position {
         self.add_piece(self.side_to_move.0, Piece::ROOK, to_rook, new_zobrist);
     }
 
-    fn move_piece_from_move(&mut self, from: u64, to: u64, move_action: &MoveInfo, new_zobrist: &mut ZobristValue) {
+    fn move_piece_from_move(
+        &mut self,
+        from: u64,
+        to: u64,
+        move_action: &MoveInfo,
+        new_zobrist: &mut ZobristValue,
+    ) {
         self.remove_piece(self.side_to_move.0, move_action.piece, from, new_zobrist);
         self.add_piece(self.side_to_move.0, move_action.piece, to, new_zobrist);
 
@@ -538,7 +589,6 @@ impl Position {
         }
     }
 
-    #[inline(always)]
     fn set_side_pieces_from_move(&mut self, from: u64, to: u64, is_capture: bool) {
         self.board.side_pieces[self.side_to_move.0].0 &= !from;
         if is_capture {
@@ -547,7 +597,26 @@ impl Position {
         self.board.side_pieces[self.side_to_move.0].0 |= to;
     }
 
-    #[inline(always)]
+    fn set_side_pieces_back_from_move(&mut self, to: u64, from: u64, is_capture: bool) {
+        self.board.side_pieces[self.side_to_move.0].0 &= !to;
+        if is_capture {
+            self.board.side_pieces[self.opposite_side()].0 |= to;
+        }
+        self.board.side_pieces[self.side_to_move.0].0 |= from;
+    }
+
+    fn set_side_pieces_from_enpassant(&mut self, from: u64, to: u64, square_to_capture: u64) {
+        self.board.side_pieces[self.side_to_move.0].0 &= !from;
+        self.board.side_pieces[self.opposite_side()].0 &= !square_to_capture;
+        self.board.side_pieces[self.side_to_move.0].0 |= to;
+    }
+
+    fn set_side_pieces_back_from_enpassant(&mut self, to: u64, from: u64, square_to_populate: u64) {
+        self.board.side_pieces[self.side_to_move.0].0 &= !to;
+        self.board.side_pieces[self.opposite_side()].0 |= square_to_populate;
+        self.board.side_pieces[self.side_to_move.0].0 |= from;
+    }
+
     fn check_is_pawn_moving_2_squares(&self, from: u64, to: u64) -> bool {
         ((self.board.pieces[self.side_to_move.0][Piece::PAWN].0 & from) != 0)
             && ((from == (to >> 16)) || (from == (to << 16)))
@@ -561,11 +630,11 @@ impl Position {
         let white_pieces = self.board.pieces[Side::WHITE];
         let black_pieces = self.board.pieces[Side::BLACK];
 
-        for (piece_type, (w, b)) in white_pieces.iter().zip(black_pieces.iter()).enumerate() {
-            let mut white_pieces = *w;
+                for (piece_type, (w, b)) in white_pieces.iter().zip(black_pieces.iter()).enumerate() {
+                        let mut white_pieces = *w;
             let mut black_pieces = *b;
 
-            while white_pieces.0 > 0 {
+                        while white_pieces.0 > 0 {
                 let square = white_pieces.0.trailing_zeros();
                 white_pieces.0 ^= 1u64 << square;
                 result ^= self
@@ -574,7 +643,7 @@ impl Position {
                     .hash;
             }
 
-            while black_pieces.0 > 0 {
+                        while black_pieces.0 > 0 {
                 let square = black_pieces.0.trailing_zeros();
                 black_pieces.0 ^= 1u64 << square;
                 result ^= self
@@ -584,7 +653,7 @@ impl Position {
             }
         }
 
-        result ^= self
+                result ^= self
             .zobrist_hashes
             .castling(self.state.castling.0 as usize)
             .hash;
@@ -594,7 +663,7 @@ impl Position {
             .en_passant(self.state.en_passant.0.trailing_zeros() as usize)
             .hash;
 
-        ZobristValue {
+                ZobristValue {
             hash: result,
             prev: None,
         }

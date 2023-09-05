@@ -42,5 +42,5 @@ pub fn get_move(movetime: isize) -> String {
         },
         None,
     );
-    format!("{}", e.current_best_move[0].as_ref().unwrap())
+    format!("{}", e.current_best_move.as_ref().unwrap())
 }

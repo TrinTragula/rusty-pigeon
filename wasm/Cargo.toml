@@ -1,6 +1,6 @@
 [package]
 name = "rustypigeonwasm"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 authors = ["TrinTragula <danielescarinc42@gmail.com>"]
 
@@ -12,7 +12,7 @@ path = "src/lib.rs"
 default = ["console_error_panic_hook"]
 
 [dependencies]
-rustypigeonlib = { version = "*", path = "../" }
+rustypigeonlib = { version = "*", path = "../", default-features = false }
 wasm-bindgen = "0.2.63"
 getrandom = { version = "0.2", features = ["js"] }
 lazy_static = "1.4.0"

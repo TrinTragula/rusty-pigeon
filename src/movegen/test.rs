@@ -166,7 +166,7 @@ mod perft_tests {
         assert_eq!(perft(&mut sut, 2, true, false, true), 191);
         assert_eq!(perft(&mut sut, 3, true, false, true), 2812);
         assert_eq!(perft(&mut sut, 4, true, false, true), 43238);
-        // assert_eq!(perft(&mut sut, 5, true, false, true), 674624);
+        assert_eq!(perft(&mut sut, 5, true, false, true), 674624);
         // assert_eq!(perft(&mut sut, 6, true, false, true), 11030083);
         // assert_eq!(perft(&mut sut, 7, true, false, true), 178633661);
         // assert_eq!(perft(&mut sut, 8, true, false, true), 3009794393);
@@ -220,5 +220,115 @@ mod perft_tests {
         // assert_eq!(perft(&mut sut, 7, true, false, true), 287188994746);
         // assert_eq!(perft(&mut sut, 8, true, false, true), 11923589843526);
         // assert_eq!(perft(&mut sut, 9, true, false, true), 490154852788714);
+    }
+
+    #[test]
+    fn check_perft_promotion() {
+        let fen = "n1n5/PPPk4/8/8/8/8/4Kppp/5N1N b - - 0 1";
+        let mut sut = Engine::from_position(FenParser::fen_to_position(fen));
+        assert_eq!(perft(&mut sut, 1, true, false, true), 24);
+        assert_eq!(perft(&mut sut, 2, true, false, true), 496);
+        assert_eq!(perft(&mut sut, 3, true, false, true), 9483);
+        assert_eq!(perft(&mut sut, 4, true, false, true), 182838);
+        assert_eq!(perft(&mut sut, 5, true, false, true), 3605103);
+        // assert_eq!(perft(&mut sut, 6, true, false, true), 71179139);
+    }
+
+    #[test]
+    fn check_perft_illegal_ep_move_1() {
+        let fen = "3k4/3p4/8/K1P4r/8/8/8/8 b - - 0 1";
+        let mut sut = Engine::from_position(FenParser::fen_to_position(fen));
+        assert_eq!(perft(&mut sut, 6, true, false, true), 1134888);
+    }
+
+    #[test]
+    fn check_perft_illegal_ep_move_2() {
+        let fen = "8/8/4k3/8/2p5/8/B2P2K1/8 w - - 0 1";
+        let mut sut = Engine::from_position(FenParser::fen_to_position(fen));
+        assert_eq!(perft(&mut sut, 6, true, false, true), 1015133);
+    }
+
+    #[test]
+    fn check_perft_en_passant_checks() {
+        let fen = "8/8/1k6/2b5/2pP4/8/5K2/8 b - d3 0 1";
+        let mut sut = Engine::from_position(FenParser::fen_to_position(fen));
+        assert_eq!(perft(&mut sut, 6, true, false, true), 1440467);
+    }
+
+    #[test]
+    fn check_perft_short_castle_check() {
+        let fen = "5k2/8/8/8/8/8/8/4K2R w K - 0 1";
+        let mut sut = Engine::from_position(FenParser::fen_to_position(fen));
+        assert_eq!(perft(&mut sut, 6, true, false, true), 661072);
+    }
+
+    #[test]
+    fn check_perft_long_castle_check() {
+        let fen = "3k4/8/8/8/8/8/8/R3K3 w Q - 0 1";
+        let mut sut = Engine::from_position(FenParser::fen_to_position(fen));
+        assert_eq!(perft(&mut sut, 6, true, false, true), 803711);
+    }
+
+    #[test]
+    fn check_perft_castle_rights() {
+        let fen = "r3k2r/1b4bq/8/8/8/8/7B/R3K2R w KQkq - 0 1";
+        let mut sut = Engine::from_position(FenParser::fen_to_position(fen));
+        assert_eq!(perft(&mut sut, 4, true, false, true), 1274206);
+    }
+
+    #[test]
+    fn check_perft_castling_prevented() {
+        let fen = "r3k2r/8/3Q4/8/8/5q2/8/R3K2R b KQkq - 0 1";
+        let mut sut = Engine::from_position(FenParser::fen_to_position(fen));
+        assert_eq!(perft(&mut sut, 4, true, false, true), 1720476);
+    }
+
+    #[test]
+    fn check_perft_promote_out_of_check() {
+        let fen = "2K2r2/4P3/8/8/8/8/8/3k4 w - - 0 1";
+        let mut sut = Engine::from_position(FenParser::fen_to_position(fen));
+        assert_eq!(perft(&mut sut, 6, true, false, true), 3821001);
+    }
+
+    #[test]
+    fn check_perft_discovered_check() {
+        let fen = "8/8/1P2K3/8/2n5/1q6/8/5k2 b - - 0 1";
+        let mut sut = Engine::from_position(FenParser::fen_to_position(fen));
+        assert_eq!(perft(&mut sut, 5, true, false, true), 1004658);
+    }
+
+    #[test]
+    fn check_perft_promote_to_give_check() {
+        let fen = "4k3/1P6/8/8/8/8/K7/8 w - - 0 1";
+        let mut sut = Engine::from_position(FenParser::fen_to_position(fen));
+        assert_eq!(perft(&mut sut, 6, true, false, true), 217342);
+    }
+
+    #[test]
+    fn check_perft_under_promote_to_give_check() {
+        let fen = "8/P1k5/K7/8/8/8/8/8 w - - 0 1";
+        let mut sut = Engine::from_position(FenParser::fen_to_position(fen));
+        assert_eq!(perft(&mut sut, 6, true, false, true), 92683);
+    }
+
+    #[test]
+    fn check_perft_self_stalemate() {
+        let fen = "K1k5/8/P7/8/8/8/8/8 w - - 0 1";
+        let mut sut = Engine::from_position(FenParser::fen_to_position(fen));
+        assert_eq!(perft(&mut sut, 6, true, false, true), 2217);
+    }
+
+    #[test]
+    fn check_perft_stalemate_and_checkmate() {
+        let fen = "8/k1P5/8/1K6/8/8/8/8 w - - 0 1";
+        let mut sut = Engine::from_position(FenParser::fen_to_position(fen));
+        assert_eq!(perft(&mut sut, 7, true, false, true), 567584);
+    }
+
+    #[test]
+    fn check_perft_stalemate_and_checkmate_2() {
+        let fen = "8/8/2k5/5q2/5n2/8/5K2/8 b - - 0 1";
+        let mut sut = Engine::from_position(FenParser::fen_to_position(fen));
+        assert_eq!(perft(&mut sut, 4, true, false, true), 23527);
     }
 }

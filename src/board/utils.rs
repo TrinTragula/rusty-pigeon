@@ -29,13 +29,11 @@ pub fn square_to_algebraic(square: u64) -> String {
     bitboard_index_to_algebraic(index)
 }
 
-#[inline(always)]
 pub fn get_row(square: u64) -> u8 {
     let index = square.trailing_zeros();
     (index / 8) as u8
 }
 
-#[inline(always)]
 pub fn get_column(square: u64) -> u8 {
     let index = square.trailing_zeros();
     (index % 8) as u8

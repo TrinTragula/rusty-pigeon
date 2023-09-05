@@ -43,8 +43,8 @@ impl MagicBitboard {
 
             for count in 0..occupancy_variations {
                 let occupancy: u64 = set_occupancy(count, bit_count, bishop_mask);
-                let magic_index: u64 =
-                    occupancy.wrapping_mul(BISHOP_MAGIC_NUMBERS[square]) >> 64 - BISHOP_RELEVANT_BITS[square];
+                let magic_index: u64 = occupancy.wrapping_mul(BISHOP_MAGIC_NUMBERS[square])
+                    >> 64 - BISHOP_RELEVANT_BITS[square];
                 bishop_attacks[square as usize][magic_index as usize] =
                     bishop_attacks_on_the_fly(square, occupancy);
             }
@@ -55,8 +55,8 @@ impl MagicBitboard {
 
             for count in 0..occupancy_variations {
                 let occupancy = set_occupancy(count, bit_count, rook_mask);
-                let magic_index =
-                    occupancy.wrapping_mul(ROOK_MAGIC_NUMBERS[square]) >> 64 - ROOK_RELEVANT_BITS[square];
+                let magic_index = occupancy.wrapping_mul(ROOK_MAGIC_NUMBERS[square])
+                    >> 64 - ROOK_RELEVANT_BITS[square];
                 rook_attacks[square as usize][magic_index as usize] =
                     rook_attacks_on_the_fly(square, occupancy);
             }

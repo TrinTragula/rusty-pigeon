@@ -36,7 +36,7 @@ mod ponder_tests {
         let mut engine = Engine::from_position(FenParser::fen_to_position(fen));
         Evaluate::search(&mut engine, GoOptions::depth(5), None);
         assert_eq!(
-            engine.current_best_move[0].clone().unwrap().m,
+            engine.current_best_move.clone().unwrap().m,
             Move::Promotion(Square::B2, Square::A1, Piece::QUEEN)
         );
     }
@@ -47,7 +47,7 @@ mod ponder_tests {
         let mut engine = Engine::from_position(FenParser::fen_to_position(crate::constants::START_POS));
         Evaluate::search(&mut engine, GoOptions::depth(7), None);
         assert_eq!(
-            engine.current_best_move[0].clone().unwrap().m,
+            engine.current_best_move.clone().unwrap().m,
             Move::Normal(Square::E2, Square::E4)
         );
     }
@@ -58,21 +58,21 @@ mod ponder_tests {
         let mut engine = Engine::from_position(FenParser::fen_to_position(fen));
         Evaluate::search(&mut engine, GoOptions::depth(5), None);
         assert_eq!(
-            engine.current_best_move[0].clone().unwrap().m,
+            engine.current_best_move.clone().unwrap().m,
             Move::Promotion(Square::A7, Square::A8, Piece::QUEEN)
         );
         let fen = "r1b2b1r/pp3Qp1/2nkn2p/3ppP1p/P1p5/1NP1NB2/1PP1PPR1/1K1R3q w - - 0 1";
         let mut engine = Engine::from_position(FenParser::fen_to_position(fen));
         Evaluate::search(&mut engine, GoOptions::depth(5), None);
         assert_eq!(
-            engine.current_best_move[0].clone().unwrap().m,
+            engine.current_best_move.clone().unwrap().m,
             Move::Normal(Square::E3, Square::C4)
         );
         let fen = "rnbqkbnr/pp1p1ppp/2p5/8/8/8/PPPPP2P/RNBQKBNR b KQkq - 0 1";
         let mut engine = Engine::from_position(FenParser::fen_to_position(fen));
         Evaluate::search(&mut engine, GoOptions::depth(5), None);
         assert_eq!(
-            engine.current_best_move[0].clone().unwrap().m,
+            engine.current_best_move.clone().unwrap().m,
             Move::Normal(Square::D8, Square::H4)
         );
     }
@@ -83,7 +83,7 @@ mod ponder_tests {
         let mut engine = Engine::from_position(FenParser::fen_to_position(fen));
         Evaluate::search(&mut engine, GoOptions::depth(5), None);
         assert_eq!(
-            engine.current_best_move[0].clone().unwrap().m,
+            engine.current_best_move.clone().unwrap().m,
             Move::Normal(Square::F3, Square::F7)
         );
 
@@ -91,7 +91,7 @@ mod ponder_tests {
         let mut engine = Engine::from_position(FenParser::fen_to_position(fen));
         Evaluate::search(&mut engine, GoOptions::depth(5), None);
         assert_eq!(
-            engine.current_best_move[0].clone().unwrap().m,
+            engine.current_best_move.clone().unwrap().m,
             Move::Normal(Square::F5, Square::G6)
         );
 
@@ -99,7 +99,7 @@ mod ponder_tests {
         let mut engine = Engine::from_position(FenParser::fen_to_position(fen));
         Evaluate::search(&mut engine, GoOptions::depth(5), None);
         assert_eq!(
-            engine.current_best_move[0].clone().unwrap().m,
+            engine.current_best_move.clone().unwrap().m,
             Move::Normal(Square::G2, Square::G1)
         );
     }

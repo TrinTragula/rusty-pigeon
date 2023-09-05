@@ -1,6 +1,6 @@
 [package]
 name = "rustypigeonlib"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 authors = ["TrinTragula <danielescarinc42@gmail.com>"]
 
@@ -11,12 +11,19 @@ num_cpus = "1.0"
 instant = { version = "0.1", features = [ "wasm-bindgen" ] }
 rustc-hash = "1.1.0"
 lazy_static = "1.4.0"
+mimalloc = { version = "0.1.38", default-features = false, optional = true }
 
 [lib]
 crate-type = ["rlib"]
 path = "src/lib.rs"
 
+[features]
+default = ["mimalloc"]
+mimalloc = ["dep:mimalloc"]
+
 [profile.release]
+opt-level = 3
+overflow-checks = false
 lto = true
 codegen-units = 1
 panic = "abort"

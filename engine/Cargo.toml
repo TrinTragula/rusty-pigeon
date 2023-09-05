@@ -1,6 +1,6 @@
 [package]
 name = "rustypigeon"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 authors = ["TrinTragula <danielescarinc42@gmail.com>"]
 
@@ -8,5 +8,9 @@ authors = ["TrinTragula <danielescarinc42@gmail.com>"]
 rustypigeonlib = { version = "*", path = "../" }
 
 [profile.release]
+opt-level = 3
+overflow-checks = false
 lto = true
 codegen-units = 1
+panic = "abort"
+strip = true

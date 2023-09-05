@@ -6,6 +6,7 @@ use std::{
         Arc, Mutex,
     },
     thread::{self},
+    time,
 };
 
 use crate::{
@@ -80,15 +81,16 @@ impl UCI {
                 println!("{}", engine.position);
             }
             "e" => {
-                // Display the current state of the board
+                // Evaluate the current position
                 let mut engine = self.engine.lock().unwrap();
                 println!("{}", Evaluate::static_evaluation(&mut engine));
             }
             // COMMANDS WITH ARGUMENTS
             _ => {
-                let e = self.engine.clone();
                 // position
                 if command.starts_with("position") {
+                    self.engine.lock().unwrap().is_configuring = true;
+                    let e = self.engine.clone();
                     thread::spawn(move || {
                         Self::position(e, &command);
                     });
@@ -96,6 +98,13 @@ impl UCI {
                 // go
                 else if command.starts_with("go") {
                     let rx = self.rx.clone();
+                    while !self.engine.try_lock().is_ok()
+                        || self.engine.lock().unwrap().is_configuring
+                        || self.engine.lock().unwrap().is_searching
+                    {
+                        thread::sleep(time::Duration::from_millis(100));
+                    }
+                    let e = self.engine.clone();
                     thread::spawn(move || {
                         Self::go(e, &command, rx);
                     });
@@ -162,7 +171,7 @@ impl UCI {
     }
 
     pub fn bestmove(engine: &Engine) {
-        let best_move = match &engine.current_best_move[0] {
+        let best_move = match &engine.current_best_move {
             Some(m) => {
                 format!("{}", m)
             }

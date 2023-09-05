@@ -3,7 +3,7 @@ mod fen_tests {
     use crate::{
         board::{
             fen::FenParser,
-            models::{Castling, Piece, Side, Square, Engine},
+            models::{Castling, Engine, Piece, Side, Square},
         },
         constants::START_POS,
     };
@@ -17,7 +17,10 @@ mod fen_tests {
         assert_eq!(sut.position.state.en_passant.0, Square::NONE);
         assert_eq!(sut.position.half_move_number, 0);
         assert_eq!(sut.position.state.since_last_capture, 0);
-        assert_eq!(sut.position.board.side_pieces[Side::WHITE].0, 0b1111111111111111);
+        assert_eq!(
+            sut.position.board.side_pieces[Side::WHITE].0,
+            0b1111111111111111
+        );
         assert_eq!(
             sut.position.board.side_pieces[Side::BLACK].0,
             0b1111111111111111 << 48
@@ -57,6 +60,56 @@ mod fen_tests {
         assert_eq!(
             sut.position.board.pieces[Side::BLACK][Piece::PAWN].0,
             0b0000000011111111 << 48
+        );
+    }
+
+    #[test]
+    fn parse_move_with_bug() {
+        let fen = START_POS;
+        let mut sut = Engine::from_position(FenParser::fen_to_position(fen));
+        sut.apply_algebraic_move("g1f3");
+        sut.apply_algebraic_move("d7d5");
+        sut.apply_algebraic_move("d2d4");
+        sut.apply_algebraic_move("g8f6");
+        sut.apply_algebraic_move("b1c3");
+        sut.apply_algebraic_move("g7g6");
+        sut.apply_algebraic_move("c1g5");
+        sut.apply_algebraic_move("f6e4");
+        sut.apply_algebraic_move("c3e4");
+        sut.apply_algebraic_move("d5e4");
+        sut.apply_algebraic_move("f3h4");
+        sut.apply_algebraic_move("f7f6");
+        sut.apply_algebraic_move("g5e3");
+        sut.apply_algebraic_move("g6g5");
+        sut.apply_algebraic_move("d4d5");
+        sut.apply_algebraic_move("g5h4");
+        sut.apply_algebraic_move("d1d4");
+        sut.apply_algebraic_move("c8f5");
+        sut.apply_algebraic_move("d4a4");
+        sut.apply_algebraic_move("d8d7");
+        sut.apply_algebraic_move("a4b3");
+        assert_eq!(sut.position.side_to_move, Side(Side::BLACK));
+        assert_eq!(sut.position.state.castling.0, Castling::ALL);
+        assert_eq!(sut.position.state.en_passant.0, Square::NONE);
+        assert_eq!(sut.position.half_move_number, 21);
+        assert_eq!(sut.position.state.since_last_capture, 5);
+        assert_eq!(
+            sut.position.board.side_pieces[Side::WHITE].0,
+            Square::D5 | Square::B3 | Square::E3 | 0b1111011110110001
+        );
+        assert_eq!(
+            sut.position.board.side_pieces[Side::BLACK].0,
+            Square::A8 | Square::B8 | Square::E8 | Square::F8 | Square::H8 | 
+            Square::A7 | Square::B7 | Square::C7 | Square::D7 | Square::E7 | 
+            Square::H7 | Square::F6 | Square::F5 | Square::E4 | Square::H4
+        );
+        assert_eq!(
+            sut.position.board.pieces[Side::WHITE][Piece::QUEEN].0,
+            Square::B3
+        );
+        assert_eq!(
+            sut.position.board.pieces[Side::BLACK][Piece::QUEEN].0,
+            Square::D7
         );
     }
 
@@ -136,7 +189,10 @@ mod fen_tests {
             sut.position.board.side_pieces[Side::WHITE].0,
             Square::E4 | Square::F3 | 0b1111111101101111
         );
-        assert_eq!(sut.position.board.pieces[Side::WHITE][Piece::KING].0, Square::G1);
+        assert_eq!(
+            sut.position.board.pieces[Side::WHITE][Piece::KING].0,
+            Square::G1
+        );
         assert_eq!(
             sut.position.board.pieces[Side::WHITE][Piece::ROOK].0,
             Square::F1 | Square::A1
@@ -145,7 +201,10 @@ mod fen_tests {
             sut.position.board.side_pieces[Side::BLACK].0,
             Square::E5 | Square::F6 | (0b1001111111111111 << 48)
         );
-        assert_eq!(sut.position.board.pieces[Side::BLACK][Piece::KING].0, Square::E8);
+        assert_eq!(
+            sut.position.board.pieces[Side::BLACK][Piece::KING].0,
+            Square::E8
+        );
         assert_eq!(
             sut.position.board.pieces[Side::BLACK][Piece::ROOK].0,
             Square::A8 | Square::H8
@@ -161,7 +220,10 @@ mod fen_tests {
             sut.position.board.side_pieces[Side::WHITE].0,
             Square::E4 | Square::F3 | 0b1111111101101111
         );
-        assert_eq!(sut.position.board.pieces[Side::WHITE][Piece::KING].0, Square::G1);
+        assert_eq!(
+            sut.position.board.pieces[Side::WHITE][Piece::KING].0,
+            Square::G1
+        );
         assert_eq!(
             sut.position.board.pieces[Side::WHITE][Piece::ROOK].0,
             Square::F1 | Square::A1
@@ -170,7 +232,10 @@ mod fen_tests {
             sut.position.board.side_pieces[Side::BLACK].0,
             Square::E5 | Square::F6 | (0b0110111111111111 << 48)
         );
-        assert_eq!(sut.position.board.pieces[Side::BLACK][Piece::KING].0, Square::G8);
+        assert_eq!(
+            sut.position.board.pieces[Side::BLACK][Piece::KING].0,
+            Square::G8
+        );
         assert_eq!(
             sut.position.board.pieces[Side::BLACK][Piece::ROOK].0,
             Square::A8 | Square::F8
@@ -256,7 +321,14 @@ mod utils_tests {
 
 #[cfg(test)]
 mod zobrist_tests {
-    use crate::{board::{fen::FenParser, models::{Engine, Square, Move, Piece, Castling}}, constants::START_POS, movegen::generator::MoveInfo};
+    use crate::{
+        board::{
+            fen::FenParser,
+            models::{Castling, Engine, Move, Piece, Square},
+        },
+        constants::START_POS,
+        movegen::generator::MoveInfo,
+    };
 
     #[test]
     fn works_and_is_same() {
