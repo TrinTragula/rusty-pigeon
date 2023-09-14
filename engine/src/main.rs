@@ -126,7 +126,7 @@ fn loop_game(fen: &str, player_play_as_black: bool, auto_play: bool) {
             engine.apply_algebraic_move(&s);
         } else {
             println!("Rusty Pigeon is thinking...");
-            Evaluate::search(&mut engine, GoOptions::movetime(5000), None);
+            Evaluate::search(&mut engine, GoOptions::movetime(5000), None, false);
             engine.apply_move(&engine.current_best_move.clone().unwrap());
         }
         clear_terminal();

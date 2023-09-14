@@ -27,14 +27,15 @@ mod ponder_tests {
             fen::FenParser,
             models::{Engine, Move, Piece, Square},
         },
-        evaluate::evaluator::{Evaluate}, uci::options::GoOptions,
+        evaluate::evaluator::Evaluate,
+        uci::options::GoOptions,
     };
 
     #[test]
     fn should_promote_to_queen() {
         let fen = "rnbqkbnr/1ppppppp/8/8/P3P3/8/1p1PKPPP/RN1Q1BNR b kq - 1 6";
         let mut engine = Engine::from_position(FenParser::fen_to_position(fen));
-        Evaluate::search(&mut engine, GoOptions::depth(5), None);
+        Evaluate::search(&mut engine, GoOptions::depth(5), None, true);
         assert_eq!(
             engine.current_best_move.clone().unwrap().m,
             Move::Promotion(Square::B2, Square::A1, Piece::QUEEN)
@@ -42,10 +43,11 @@ mod ponder_tests {
     }
 
     #[test]
-    #[ignore = "takes a lot of time"]
+    // #[ignore = "takes a lot of time"]
     fn start_pos() {
-        let mut engine = Engine::from_position(FenParser::fen_to_position(crate::constants::START_POS));
-        Evaluate::search(&mut engine, GoOptions::depth(7), None);
+        let mut engine =
+            Engine::from_position(FenParser::fen_to_position(crate::constants::START_POS));
+        Evaluate::search(&mut engine, GoOptions::depth(7), None, true);
         assert_eq!(
             engine.current_best_move.clone().unwrap().m,
             Move::Normal(Square::E2, Square::E4)
@@ -56,21 +58,21 @@ mod ponder_tests {
     fn mate_in_1() {
         let fen = "4k1B1/P6R/8/1P1P4/5P1P/3P1P1P/8/R3K3 w Q - 1 43";
         let mut engine = Engine::from_position(FenParser::fen_to_position(fen));
-        Evaluate::search(&mut engine, GoOptions::depth(5), None);
+        Evaluate::search(&mut engine, GoOptions::depth(5), None, true);
         assert_eq!(
             engine.current_best_move.clone().unwrap().m,
             Move::Promotion(Square::A7, Square::A8, Piece::QUEEN)
         );
         let fen = "r1b2b1r/pp3Qp1/2nkn2p/3ppP1p/P1p5/1NP1NB2/1PP1PPR1/1K1R3q w - - 0 1";
         let mut engine = Engine::from_position(FenParser::fen_to_position(fen));
-        Evaluate::search(&mut engine, GoOptions::depth(5), None);
+        Evaluate::search(&mut engine, GoOptions::depth(5), None, true);
         assert_eq!(
             engine.current_best_move.clone().unwrap().m,
             Move::Normal(Square::E3, Square::C4)
         );
         let fen = "rnbqkbnr/pp1p1ppp/2p5/8/8/8/PPPPP2P/RNBQKBNR b KQkq - 0 1";
         let mut engine = Engine::from_position(FenParser::fen_to_position(fen));
-        Evaluate::search(&mut engine, GoOptions::depth(5), None);
+        Evaluate::search(&mut engine, GoOptions::depth(5), None, true);
         assert_eq!(
             engine.current_best_move.clone().unwrap().m,
             Move::Normal(Square::D8, Square::H4)
@@ -81,7 +83,7 @@ mod ponder_tests {
     fn mate_in_2() {
         let fen = "2bqkbn1/2pppp2/np2N3/r3P1p1/p2N2B1/5Q2/PPPPKPP1/RNB2r2 w KQkq - 0 1";
         let mut engine = Engine::from_position(FenParser::fen_to_position(fen));
-        Evaluate::search(&mut engine, GoOptions::depth(5), None);
+        Evaluate::search(&mut engine, GoOptions::depth(5), None, true);
         assert_eq!(
             engine.current_best_move.clone().unwrap().m,
             Move::Normal(Square::F3, Square::F7)
@@ -89,7 +91,7 @@ mod ponder_tests {
 
         let fen = "r2qk2r/pb4pp/1n2Pb2/2B2Q2/p1p5/2P5/2B2PPP/RN2R1K1 w - - 1 1";
         let mut engine = Engine::from_position(FenParser::fen_to_position(fen));
-        Evaluate::search(&mut engine, GoOptions::depth(5), None);
+        Evaluate::search(&mut engine, GoOptions::depth(5), None, true);
         assert_eq!(
             engine.current_best_move.clone().unwrap().m,
             Move::Normal(Square::F5, Square::G6)
@@ -97,19 +99,87 @@ mod ponder_tests {
 
         let fen = "6k1/pp4p1/2p5/2bp4/8/P5Pb/1P3rrP/2BRRN1K b - - 0 1";
         let mut engine = Engine::from_position(FenParser::fen_to_position(fen));
-        Evaluate::search(&mut engine, GoOptions::depth(5), None);
+        Evaluate::search(&mut engine, GoOptions::depth(5), None, true);
         assert_eq!(
             engine.current_best_move.clone().unwrap().m,
             Move::Normal(Square::G2, Square::G1)
+        );
+    }
+
+    #[test]
+    fn avoid_threefold_repetition() {
+        let fen = "3k4/1p1b1p2/p2p1pnp/2p5/3NP2P/2P3KP/P1P2PB1/R5R1 w - - 0 22";
+        let mut engine = Engine::from_position(FenParser::fen_to_position(fen));
+        engine.apply_algebraic_move("d4f5");
+        engine.apply_algebraic_move("g6e7");
+        engine.apply_algebraic_move("g3f4");
+        engine.apply_algebraic_move("e7g6");
+        engine.apply_algebraic_move("f4g3");
+        engine.apply_algebraic_move("g6e7");
+        engine.apply_algebraic_move("g3f4");
+        engine.apply_algebraic_move("e7g6");
+
+        Evaluate::search(&mut engine, GoOptions::depth(7), None, false);
+        assert_ne!(
+            engine.current_best_move.clone().unwrap().m,
+            Move::Normal(Square::F4, Square::G3)
+        );
+
+        let fen = "8/5kp1/8/3PR3/P2nKP2/3N4/PP5r/8 b - - 8 47";
+        engine = Engine::from_position(FenParser::fen_to_position(fen));
+        engine.apply_algebraic_move("d4c2");
+        engine.apply_algebraic_move("e5f5");
+        engine.apply_algebraic_move("f7e7");
+        engine.apply_algebraic_move("f5e5");
+        engine.apply_algebraic_move("e7f7");
+        engine.apply_algebraic_move("e5f5");
+        engine.apply_algebraic_move("f7e7");
+        Evaluate::search(&mut engine, GoOptions::depth(5), None, true);
+        assert_ne!(
+            engine.current_best_move.clone().unwrap().m,
+            Move::Normal(Square::F5, Square::E5)
+        );
+    }
+
+    #[test]
+    fn pursue_threefold_repetition_if_losing() {
+        let fen = "3k4/1p1b1p2/p2p1pnp/2p5/3NP2P/2P3KP/8/8 w - - 0 22";
+        let mut engine = Engine::from_position(FenParser::fen_to_position(fen));
+        engine.apply_algebraic_move("d4f5");
+        engine.apply_algebraic_move("g6e7");
+        engine.apply_algebraic_move("g3f4");
+        engine.apply_algebraic_move("e7g6");
+        engine.apply_algebraic_move("f4g3");
+        engine.apply_algebraic_move("g6e7");
+        engine.apply_algebraic_move("g3f4");
+        engine.apply_algebraic_move("e7g6");
+
+        Evaluate::search(&mut engine, GoOptions::depth(5), None, true);
+        assert_eq!(
+            engine.current_best_move.clone().unwrap().m,
+            Move::Normal(Square::F4, Square::G3)
+        );
+
+        let fen = "8/5kp1/8/3PR3/3nKP2/8/7r/8 b - - 8 47";
+        engine = Engine::from_position(FenParser::fen_to_position(fen));
+        engine.apply_algebraic_move("d4c2");
+        engine.apply_algebraic_move("e5f5");
+        engine.apply_algebraic_move("f7e7");
+        engine.apply_algebraic_move("f5e5");
+        engine.apply_algebraic_move("e7f7");
+        engine.apply_algebraic_move("e5f5");
+        engine.apply_algebraic_move("f7e7");
+        Evaluate::search(&mut engine, GoOptions::depth(5), None, true);
+        assert_ne!(
+            engine.current_best_move.clone().unwrap().m,
+            Move::Normal(Square::F5, Square::E5)
         );
     }
 }
 
 #[cfg(test)]
 mod uci_options_parser_tests {
-    use crate::{
-        board::models::Side, uci::options::GoOptions,
-    };
+    use crate::{board::models::Side, uci::options::GoOptions};
 
     #[test]
     fn parse_correctly() {

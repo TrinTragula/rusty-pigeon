@@ -51,6 +51,7 @@ impl FenParser {
             castling,
             en_passant,
             since_last_capture,
+            since_last_capture_or_pawn_movement: since_last_capture,
             prev: None
         });
 

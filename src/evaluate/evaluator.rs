@@ -4,9 +4,9 @@ use std::{
         mpsc::{Receiver, TryRecvError},
         Arc, Mutex,
     },
+    time::Instant,
 };
 
-use instant::Instant;
 use rustc_hash::FxHashMap;
 
 use crate::{
@@ -31,22 +31,29 @@ pub struct Evaluate;
 impl Evaluate {
     // todo: Evaluate pawn structures
     // todo: Incremental evaluation of pieces (each move check the change in piece value)
-    
+
     pub fn eval_for_uci(
         engine: &mut Engine,
         command: &str,
         rx: Option<Arc<Mutex<Receiver<&str>>>>,
     ) {
         let options = GoOptions::parse(command);
-        Self::search(engine, options, rx);
+        Self::search(engine, options, rx, false);
         UCI::bestmove(engine);
     }
 
-    pub fn search(engine: &mut Engine, options: GoOptions, rx: Option<Arc<Mutex<Receiver<&str>>>>) {
+    pub fn search(
+        engine: &mut Engine,
+        options: GoOptions,
+        rx: Option<Arc<Mutex<Receiver<&str>>>>,
+        silent: bool,
+    ) {
         let alpha = -isize::MAX;
         let beta = isize::MAX;
         engine.is_searching = true;
         engine.current_best_move = None;
+        engine.searched_nodes = 0;
+        engine.started_searching_at = Some(Instant::now());
 
         let (max_depth, time_to_move_ms) = GoOptions::parse_uci_options(
             options,
@@ -83,6 +90,7 @@ impl Evaluate {
                 engine.position.side_to_move.0,
                 time_to_move_ms,
                 start,
+                silent,
             );
         }
         engine.is_searching = false;
@@ -98,6 +106,7 @@ impl Evaluate {
         original_side: usize,
         time_to_move_ms: Option<u128>,
         start: Instant,
+        silent: bool,
     ) {
         if !engine.is_searching {
             return;
@@ -138,7 +147,8 @@ impl Evaluate {
                 true
             };
 
-            let mut line: [Option<MoveInfo>; 10] = [None, None, None, None, None, None, None, None, None, None];
+            let mut line: [Option<MoveInfo>; 10] =
+                [None, None, None, None, None, None, None, None, None, None];
             let score = if write_table {
                 -Self::alpha_beta(
                     engine,
@@ -156,7 +166,7 @@ impl Evaluate {
             };
 
             if Self::check_should_exit(engine, rx, time_to_move_ms, start) {
-                engine.undo_move(&m);
+                engine.undo_move(m);
                 return;
             }
 
@@ -189,7 +199,7 @@ impl Evaluate {
                 }
             }
             moves_score.insert(m.clone(), score);
-            engine.undo_move(&m);
+            engine.undo_move(m);
 
             if score > alpha {
                 alpha = score;
@@ -201,8 +211,7 @@ impl Evaluate {
                     _ => 0,
                 };
 
-                let pv_enabled = true;
-                if pv_enabled {
+                if !silent {
                     let mut pv = String::from("");
                     pv.push_str(&format!(" {}", m.clone()));
 
@@ -211,9 +220,15 @@ impl Evaluate {
                             pv.push_str(&format!(" {}", m.unwrap().clone()));
                         }
                     }
-                    println!("info score cp {score_cp} pv{pv} depth {depth}");
-                } else {
-                    println!("info score cp {score_cp} depth {depth}");
+                    let elapsed = engine.started_searching_at.unwrap().elapsed();
+                    let elapsed_seconds = elapsed.as_millis() as f64 / 1000.0;
+                    // println!("{elapsed_seconds} elapsed");
+                    let nps = if elapsed_seconds > 0.0 {
+                        engine.searched_nodes as f64 / elapsed_seconds
+                    } else {
+                        0.0
+                    } as u64;
+                    println!("info score cp {score_cp} pv{pv} depth {depth} nps {nps}");
                 }
             }
         }
@@ -254,12 +269,17 @@ impl Evaluate {
             let mut cached_score = 0;
             let mut cached_triplet = None;
             let cached_zobrist = engine.zobrist_table.get(&engine.position.zobrist.hash);
+            let cloned = if cached_zobrist.is_some() {
+                Some(cached_zobrist.unwrap().clone())
+            } else {
+                None
+            };
             let has_key = cached_zobrist.is_some();
             if has_key {
                 let unwrapped = cached_zobrist.unwrap();
                 cached_triplet = unwrapped[depth_left - 1];
                 let mut iter = depth_left;
-                                while cached_triplet.is_none() {
+                while cached_triplet.is_none() {
                     cached_triplet = unwrapped[iter];
                     iter += 1;
                     if iter >= 10 {
@@ -281,7 +301,8 @@ impl Evaluate {
             };
 
             let score;
-            let mut line: [Option<MoveInfo>; 10] = [None, None, None, None, None, None, None, None, None, None];
+            let mut line: [Option<MoveInfo>; 10] =
+                [None, None, None, None, None, None, None, None, None, None];
             if write_table {
                 if search_pv {
                     score = -Self::alpha_beta(
@@ -339,15 +360,11 @@ impl Evaluate {
                         .zobrist_table
                         .insert(engine.position.zobrist.hash, value);
                 } else {
-                    // todo: find a way to not read this value again
-                    let mut value = *engine
-                        .zobrist_table
-                        .get(&engine.position.zobrist.hash)
-                        .unwrap();
-                    value[depth_left - 1] = Some((score, alpha, beta));
+                    let mut cached_unwrapped = cloned.unwrap();
+                    cached_unwrapped[depth_left - 1] = Some((score, alpha, beta));
                     engine
                         .zobrist_table
-                        .insert(engine.position.zobrist.hash, value);
+                        .insert(engine.position.zobrist.hash, cached_unwrapped);
                 }
             }
 
@@ -360,10 +377,9 @@ impl Evaluate {
                 alpha = score;
                 search_pv = false;
 
-                prev_line[actual_depth] = Some(m.clone());
-                for i in (actual_depth+1)..10 {
-                    prev_line[i] = line[i-1].clone();
-                }
+                prev_line[actual_depth] = Some(m);
+                prev_line[(actual_depth + 1)..10]
+                    .clone_from_slice(&line[(actual_depth + 1 - 1)..(10 - 1)]);
             }
         }
         if let Some(value) = Self::check_mate_or_stalemate(engine, tot_moves, actual_depth) {
@@ -450,6 +466,12 @@ impl Evaluate {
     }
 
     pub fn static_evaluation(engine: &mut Engine) -> isize {
+        engine.searched_nodes += 1;
+
+        if engine.check_draw_coditions() {
+            return 0;
+        }
+
         if let Some(score) = engine
             .zobrist_evaluation_table
             .get(&engine.position.zobrist.hash)
@@ -460,84 +482,17 @@ impl Evaluate {
         let mut result = 0;
 
         // Material value
-        result += Self::get_pieces_value(
-            &engine.position.board,
-            &Side(Side::WHITE),
-            &Piece(Piece::PAWN),
-            PAWN_VALUE,
-        );
-        result += Self::get_pieces_value(
-            &engine.position.board,
-            &Side(Side::WHITE),
-            &Piece(Piece::ROOK),
-            ROOK_VALUE,
-        );
-        result += Self::get_pieces_value(
-            &engine.position.board,
-            &Side(Side::WHITE),
-            &Piece(Piece::KNIGHT),
-            KNIGHT_VALUE,
-        );
-        result += Self::get_pieces_value(
-            &engine.position.board,
-            &Side(Side::WHITE),
-            &Piece(Piece::BISHOP),
-            BISHOP_VALUE,
-        );
-        result += Self::get_pieces_value(
-            &engine.position.board,
-            &Side(Side::WHITE),
-            &Piece(Piece::QUEEN),
-            QUEEN_VALUE,
-        );
-        result += Self::get_pieces_value(
-            &engine.position.board,
-            &Side(Side::WHITE),
-            &Piece(Piece::KING),
-            KING_VALUE,
-        );
-        result += Self::get_pieces_value(
-            &engine.position.board,
-            &Side(Side::BLACK),
-            &Piece(Piece::PAWN),
-            PAWN_VALUE,
-        );
-        result += Self::get_pieces_value(
-            &engine.position.board,
-            &Side(Side::BLACK),
-            &Piece(Piece::ROOK),
-            ROOK_VALUE,
-        );
-        result += Self::get_pieces_value(
-            &engine.position.board,
-            &Side(Side::BLACK),
-            &Piece(Piece::KNIGHT),
-            KNIGHT_VALUE,
-        );
-        result += Self::get_pieces_value(
-            &engine.position.board,
-            &Side(Side::BLACK),
-            &Piece(Piece::BISHOP),
-            BISHOP_VALUE,
-        );
-        result += Self::get_pieces_value(
-            &engine.position.board,
-            &Side(Side::BLACK),
-            &Piece(Piece::QUEEN),
-            QUEEN_VALUE,
-        );
-        result += Self::get_pieces_value(
-            &engine.position.board,
-            &Side(Side::BLACK),
-            &Piece(Piece::KING),
-            KING_VALUE,
-        );
-
-        // Mobility
-        result += Self::get_mobility_values(engine);
+        if let Some(static_eval) = engine.static_eval {
+            result += static_eval;
+        } else {
+            result += Self::evaluate_material(engine);
+        }
 
         // Square position tables
         result += Self::get_square_table_values(&mut engine.position);
+
+        // Mobility
+        result += Self::get_mobility_values(engine);
 
         result = match engine.position.side_to_move {
             Side(Side::WHITE) => result,
@@ -609,6 +564,7 @@ impl Evaluate {
     }
 
     pub fn get_square_table_values(position: &mut Position) -> isize {
+        // TODO: move this inside the move function to evaluate it step by step
         let mut result: isize = 0;
         let is_end_game = Self::is_end_game(position);
 
@@ -801,10 +757,87 @@ impl Evaluate {
                 // That's a mate, mate
                 return Some(-(MATE_VALUE - (actual_depth as isize)));
             } else {
-                // That's a stale mate, signal a draw
+                // That's a stale mate or a draw condition was met, signal a draw
                 return Some(0);
             }
         }
         None
+    }
+
+    pub fn evaluate_material(engine: &Engine) -> isize {
+        let mut result = 0;
+        result += Self::get_pieces_value(
+            &engine.position.board,
+            &Side(Side::WHITE),
+            &Piece(Piece::PAWN),
+            PAWN_VALUE,
+        );
+        result += Self::get_pieces_value(
+            &engine.position.board,
+            &Side(Side::WHITE),
+            &Piece(Piece::ROOK),
+            ROOK_VALUE,
+        );
+        result += Self::get_pieces_value(
+            &engine.position.board,
+            &Side(Side::WHITE),
+            &Piece(Piece::KNIGHT),
+            KNIGHT_VALUE,
+        );
+        result += Self::get_pieces_value(
+            &engine.position.board,
+            &Side(Side::WHITE),
+            &Piece(Piece::BISHOP),
+            BISHOP_VALUE,
+        );
+        result += Self::get_pieces_value(
+            &engine.position.board,
+            &Side(Side::WHITE),
+            &Piece(Piece::QUEEN),
+            QUEEN_VALUE,
+        );
+        result += Self::get_pieces_value(
+            &engine.position.board,
+            &Side(Side::WHITE),
+            &Piece(Piece::KING),
+            KING_VALUE,
+        );
+        result += Self::get_pieces_value(
+            &engine.position.board,
+            &Side(Side::BLACK),
+            &Piece(Piece::PAWN),
+            PAWN_VALUE,
+        );
+        result += Self::get_pieces_value(
+            &engine.position.board,
+            &Side(Side::BLACK),
+            &Piece(Piece::ROOK),
+            ROOK_VALUE,
+        );
+        result += Self::get_pieces_value(
+            &engine.position.board,
+            &Side(Side::BLACK),
+            &Piece(Piece::KNIGHT),
+            KNIGHT_VALUE,
+        );
+        result += Self::get_pieces_value(
+            &engine.position.board,
+            &Side(Side::BLACK),
+            &Piece(Piece::BISHOP),
+            BISHOP_VALUE,
+        );
+        result += Self::get_pieces_value(
+            &engine.position.board,
+            &Side(Side::BLACK),
+            &Piece(Piece::QUEEN),
+            QUEEN_VALUE,
+        );
+        result += Self::get_pieces_value(
+            &engine.position.board,
+            &Side(Side::BLACK),
+            &Piece(Piece::KING),
+            KING_VALUE,
+        );
+        result
     }
 }

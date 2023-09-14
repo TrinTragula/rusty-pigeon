@@ -1,8 +1,12 @@
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use rustc_hash::FxHashMap;
 
-use crate::movegen::generator::MoveInfo;
+use crate::{
+    constants::{BISHOP_VALUE, KING_VALUE, KNIGHT_VALUE, PAWN_VALUE, QUEEN_VALUE, ROOK_VALUE},
+    evaluate::evaluator::Evaluate,
+    movegen::generator::MoveInfo,
+};
 
 use super::{
     utils::algebraic_to_move,
@@ -13,20 +17,28 @@ use super::{
 pub struct Engine {
     pub position: Position,
     pub current_best_move: Option<MoveInfo>,
+    pub hash_history: Vec<u64>,
     pub is_searching: bool,
     pub is_configuring: bool,
     pub zobrist_table: FxHashMap<u64, [Option<(isize, isize, isize)>; 10]>,
     pub zobrist_evaluation_table: FxHashMap<u64, isize>,
+    pub searched_nodes: u128,
+    pub started_searching_at: Option<Instant>,
+    pub static_eval: Option<isize>,
 }
 impl Engine {
     pub fn empty() -> Engine {
         Engine {
             position: Position::empty(),
             current_best_move: None,
+            hash_history: Vec::new(),
             is_searching: false,
             is_configuring: false,
             zobrist_table: FxHashMap::default(),
             zobrist_evaluation_table: FxHashMap::default(),
+            searched_nodes: 0,
+            started_searching_at: None,
+            static_eval: None,
         }
     }
 
@@ -34,19 +46,70 @@ impl Engine {
         Engine {
             position,
             current_best_move: None,
+            hash_history: Vec::new(),
             is_searching: false,
             is_configuring: false,
             zobrist_table: FxHashMap::default(),
             zobrist_evaluation_table: FxHashMap::default(),
+            searched_nodes: 0,
+            started_searching_at: None,
+            static_eval: None,
         }
     }
 
     pub fn apply_move(&mut self, m: &MoveInfo) {
+        if self.static_eval.is_some() {
+            self.update_static_eval(m);
+        } else {
+            self.static_eval = Some(Evaluate::evaluate_material(&self));
+        }
         self.position.apply_move(m);
+        self.hash_history.push(self.position.zobrist.hash);
     }
 
     pub fn undo_move(&mut self, m: &MoveInfo) {
+        self.update_static_eval(m);
         self.position.undo_move(m);
+        self.hash_history.pop();
+    }
+
+    fn update_static_eval(&mut self, m: &MoveInfo) {
+        if let Some(captured_piece) = m.captured_piece {
+            let piece_value = match captured_piece {
+                Piece::PAWN => PAWN_VALUE,
+                Piece::KNIGHT => KNIGHT_VALUE,
+                Piece::BISHOP => BISHOP_VALUE,
+                Piece::ROOK => ROOK_VALUE,
+                Piece::QUEEN => QUEEN_VALUE,
+                Piece::KING => KING_VALUE,
+                _ => 0,
+            };
+            self.static_eval = Some(
+                self.static_eval.unwrap()
+                    + (match self.position.side_to_move {
+                        Side(Side::WHITE) => piece_value,
+                        Side(Side::BLACK) => -piece_value,
+                        _ => 0,
+                    }),
+            );
+        }
+        if let Move::Promotion(_, _, promotion_piece) = m.m {
+            let promotion_piece_value = (match promotion_piece {
+                Piece::KNIGHT => KNIGHT_VALUE,
+                Piece::BISHOP => BISHOP_VALUE,
+                Piece::ROOK => ROOK_VALUE,
+                Piece::QUEEN => QUEEN_VALUE,
+                _ => 0,
+            }) - PAWN_VALUE;
+            self.static_eval = Some(
+                self.static_eval.unwrap()
+                    + (match self.position.side_to_move {
+                        Side(Side::WHITE) => promotion_piece_value,
+                        Side(Side::BLACK) => -promotion_piece_value,
+                        _ => 0,
+                    }),
+            );
+        }
     }
 
     // Apply a move given as a string in long algebraic notation
@@ -108,6 +171,40 @@ impl Engine {
                 captured_piece
             },
         });
+        self.hash_history.push(self.position.zobrist.hash);
+    }
+
+    pub fn check_draw_coditions(&mut self) -> bool {
+        // Fifty-move rule
+        if self.position.state.since_last_capture_or_pawn_movement > 50 {
+            return true;
+        }
+
+        // Threefold repetition
+        if self.position.state.since_last_capture_or_pawn_movement >= 8
+            && self.hash_history.len() > 0
+        {
+            // We need at least 9 half moves
+            let hash_len = self.hash_history.len();
+            let this_position = self.hash_history[hash_len - 1];
+            // It's impossibile to repeat a state after a capture or pawn movement
+            let positions_to_check = self
+                .hash_history
+                .iter()
+                .rev()
+                .take(self.position.state.since_last_capture_or_pawn_movement + 1);
+            let mut times_repeated = 0;
+            for position in positions_to_check {
+                if this_position == *position {
+                    times_repeated += 1;
+                }
+                if times_repeated >= 3 {
+                    // Draws!
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
 
@@ -252,6 +349,7 @@ impl Position {
             castling: Castling(self.state.castling.0),
             en_passant: Square(self.state.en_passant.0),
             since_last_capture: self.state.since_last_capture,
+            since_last_capture_or_pawn_movement: self.state.since_last_capture_or_pawn_movement,
             prev: Some(Arc::clone(&self.state)),
         };
 
@@ -424,6 +522,13 @@ impl Position {
         } else {
             new_state.since_last_capture + 1
         };
+        // Add half moves since capture or pawn movement
+        new_state.since_last_capture_or_pawn_movement =
+            if is_capture || move_action.piece == Piece::PAWN {
+                0
+            } else {
+                new_state.since_last_capture_or_pawn_movement + 1
+            };
 
         // Check en passant square
         if enpassant_square != Square::NONE {
@@ -630,11 +735,11 @@ impl Position {
         let white_pieces = self.board.pieces[Side::WHITE];
         let black_pieces = self.board.pieces[Side::BLACK];
 
-                for (piece_type, (w, b)) in white_pieces.iter().zip(black_pieces.iter()).enumerate() {
-                        let mut white_pieces = *w;
+        for (piece_type, (w, b)) in white_pieces.iter().zip(black_pieces.iter()).enumerate() {
+            let mut white_pieces = *w;
             let mut black_pieces = *b;
 
-                        while white_pieces.0 > 0 {
+            while white_pieces.0 > 0 {
                 let square = white_pieces.0.trailing_zeros();
                 white_pieces.0 ^= 1u64 << square;
                 result ^= self
@@ -643,7 +748,7 @@ impl Position {
                     .hash;
             }
 
-                        while black_pieces.0 > 0 {
+            while black_pieces.0 > 0 {
                 let square = black_pieces.0.trailing_zeros();
                 black_pieces.0 ^= 1u64 << square;
                 result ^= self
@@ -653,7 +758,7 @@ impl Position {
             }
         }
 
-                result ^= self
+        result ^= self
             .zobrist_hashes
             .castling(self.state.castling.0 as usize)
             .hash;
@@ -663,7 +768,7 @@ impl Position {
             .en_passant(self.state.en_passant.0.trailing_zeros() as usize)
             .hash;
 
-                ZobristValue {
+        ZobristValue {
             hash: result,
             prev: None,
         }
@@ -674,6 +779,7 @@ impl Position {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct BoardState {
     pub since_last_capture: usize,
+    pub since_last_capture_or_pawn_movement: usize,
     pub castling: Castling,
     pub en_passant: Square,
     pub prev: Option<Arc<BoardState>>,
@@ -684,6 +790,7 @@ impl BoardState {
             castling: Castling(Castling::NO_CASTLING),
             en_passant: Square(Square::NONE),
             since_last_capture: 0,
+            since_last_capture_or_pawn_movement: 0,
             prev: None,
         }
     }

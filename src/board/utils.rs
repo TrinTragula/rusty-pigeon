@@ -87,50 +87,48 @@ pub fn perft(e: &mut Engine, index: u8, first: bool, show_moves: bool, parallel:
     let mut moves = MoveGenerator::get_ordered_moves_by_kind(e, MoveGenKind::All);
     if index == 1 {
         moves.len()
-    } else {
-        if first && parallel {
-            let tot = Arc::new(Mutex::new(0));
-            let mut threads: Vec<JoinHandle<()>> = vec![];
-            let tot_moves = moves.len();
-            let cpus = num_cpus::get();
-            let batch_length = if tot_moves / cpus == 0 {
-                1
-            } else {
-                tot_moves / cpus
-            };
-            loop {
-                let actual_length = cmp::min(moves.len(), batch_length);
-                let thread_moves: Vec<MoveInfo> = moves.drain(0..actual_length).collect();
-                if thread_moves.is_empty() {
-                    break;
-                }
-                let new_e = e.clone();
-                let tot = Arc::clone(&tot);
-                threads.push(thread::spawn(move || {
-                    for actual_move in thread_moves {
-                        let mut new_e = new_e.clone();
-                        new_e.position.apply_move(&actual_move);
-                        let num = perft(&mut new_e, index - 1, false, show_moves, false);
-                        new_e.position.undo_move(&actual_move);
-                        *tot.lock().unwrap() += num;
-                        if show_moves {
-                            println!("{}: {}", actual_move.m, num);
-                        }
-                    }
-                }));
-            }
-            for handle in threads {
-                handle.join().unwrap()
-            }
-            return *tot.lock().unwrap();
+    } else if first && parallel {
+        let tot = Arc::new(Mutex::new(0));
+        let mut threads: Vec<JoinHandle<()>> = vec![];
+        let tot_moves = moves.len();
+        let cpus = num_cpus::get();
+        let batch_length = if tot_moves / cpus == 0 {
+            1
         } else {
-            let mut tot: usize = 0;
-            for actual_move in moves {
-                e.position.apply_move(&actual_move);
-                tot += perft(e, index - 1, false, show_moves, false);
-                e.position.undo_move(&actual_move);
+            tot_moves / cpus
+        };
+        loop {
+            let actual_length = cmp::min(moves.len(), batch_length);
+            let thread_moves: Vec<MoveInfo> = moves.drain(0..actual_length).collect();
+            if thread_moves.is_empty() {
+                break;
             }
-            tot
+            let new_e = e.clone();
+            let tot = Arc::clone(&tot);
+            threads.push(thread::spawn(move || {
+                for actual_move in thread_moves {
+                    let mut new_e = new_e.clone();
+                    new_e.position.apply_move(&actual_move);
+                    let num = perft(&mut new_e, index - 1, false, show_moves, false);
+                    new_e.position.undo_move(&actual_move);
+                    *tot.lock().unwrap() += num;
+                    if show_moves {
+                        println!("{}: {}", actual_move.m, num);
+                    }
+                }
+            }));
         }
+        for handle in threads {
+            handle.join().unwrap()
+        }
+        return *tot.lock().unwrap();
+    } else {
+        let mut tot: usize = 0;
+        for actual_move in moves {
+            e.position.apply_move(&actual_move);
+            tot += perft(e, index - 1, false, show_moves, false);
+            e.position.undo_move(&actual_move);
+        }
+        tot
     }
 }

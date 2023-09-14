@@ -13,6 +13,7 @@ use super::magic::{KING_LOOKUP, KNIGHTS_LOOKUP};
 pub enum MoveGenKind {
     OnlyCaptures,
     OnlySilent,
+    OnlyKing,
     All,
 }
 
@@ -49,16 +50,18 @@ impl MoveInfo {
 
 impl MoveGenerator {
     pub fn get_ordered_moves(e: &mut Engine) -> Vec<MoveInfo> {
+        if e.check_draw_coditions() {
+            return vec![];
+        }
         let mut moves: Vec<MoveInfo> = Self::get_legal_moves(&mut e.position, &MoveGenKind::All);
         Self::sort_moves(&mut moves, e);
         moves
     }
 
-    pub fn sort_moves(moves: &mut [MoveInfo], e: &mut Engine) {
-        moves.sort_by(|a, b| b.get_value(e).cmp(&a.get_value(e)));
-    }
-
     pub fn get_ordered_moves_by_kind(e: &mut Engine, move_gen_kind: MoveGenKind) -> Vec<MoveInfo> {
+        if e.check_draw_coditions() {
+            return vec![];
+        }
         let mut moves: Vec<MoveInfo> = Self::get_legal_moves(&mut e.position, &move_gen_kind);
 
         Self::sort_moves(&mut moves, e);
@@ -66,7 +69,11 @@ impl MoveGenerator {
         moves
     }
 
-    pub fn is_legal(new_pos: &mut Position, m: &MoveInfo) -> bool {
+    fn sort_moves(moves: &mut [MoveInfo], e: &mut Engine) {
+        moves.sort_by_key(|b| std::cmp::Reverse(b.get_value(e)))
+    }
+
+    fn is_legal(new_pos: &mut Position, m: &MoveInfo) -> bool {
         if m.m == Move::Castle(Castling::WHITE_KING_SIDE) {
             let king = new_pos.board.pieces[new_pos.side_to_move.0][Piece::KING].0;
             let square_index = king.trailing_zeros();
@@ -127,11 +134,11 @@ impl MoveGenerator {
             // We need this move to be legal for evaluation reasons
             // (otherwise we would need to add weird checks on evaluation, because here later
             // we would try to generate for the non existant opposite king)
-            pos.undo_move(&m);
+            pos.undo_move(m);
             return true;
         }
         let result = Self::is_position_check(pos);
-        pos.undo_move(&m);
+        pos.undo_move(m);
         result
     }
 
@@ -140,7 +147,7 @@ impl MoveGenerator {
         let square_index = king.trailing_zeros();
         let king_square = 1u64 << square_index;
 
-        let moves = MoveGenerator::get_pseudo_legal_moves(pos, &MoveGenKind::OnlyCaptures);
+        let moves = MoveGenerator::get_pseudo_legal_moves(pos, &MoveGenKind::OnlyKing);
         moves.iter().any(|m| match &m.m {
             Move::Normal(_, to) => to & king_square > 0,
             Move::Promotion(_, to, _) => to & king_square > 0,
@@ -187,48 +194,48 @@ impl MoveGenerator {
         moves
     }
 
-    pub fn get_legal_moves(mut pos: &mut Position, move_gen_kind: &MoveGenKind) -> Vec<MoveInfo> {
+    pub fn get_legal_moves(pos: &mut Position, move_gen_kind: &MoveGenKind) -> Vec<MoveInfo> {
         let mut moves: Vec<MoveInfo> = vec![];
 
         // Pawn
         let pawn_moves: Vec<MoveInfo> = Self::get_pawn_moves(pos, move_gen_kind)
             .into_iter()
-            .filter(|m| Self::is_legal(&mut pos, m))
+            .filter(|m| Self::is_legal(pos, m))
             .collect();
         moves.extend(pawn_moves);
 
         // Knights
         let knight_moves: Vec<MoveInfo> = Self::get_knight_moves(pos, move_gen_kind)
             .into_iter()
-            .filter(|m| Self::is_legal(&mut pos, m))
+            .filter(|m| Self::is_legal(pos, m))
             .collect();
         moves.extend(knight_moves);
 
         // King
         let king_moves: Vec<MoveInfo> = Self::get_king_moves(pos, move_gen_kind)
             .into_iter()
-            .filter(|m| Self::is_legal(&mut pos, m))
+            .filter(|m| Self::is_legal(pos, m))
             .collect();
         moves.extend(king_moves);
 
         // Rook
         let rook_moves: Vec<MoveInfo> = Self::get_rook_moves(pos, move_gen_kind)
             .into_iter()
-            .filter(|m| Self::is_legal(&mut pos, m))
+            .filter(|m| Self::is_legal(pos, m))
             .collect();
         moves.extend(rook_moves);
 
         // Bishop
         let bishop_moves: Vec<MoveInfo> = Self::get_bishop_moves(pos, move_gen_kind)
             .into_iter()
-            .filter(|m| Self::is_legal(&mut pos, m))
+            .filter(|m| Self::is_legal(pos, m))
             .collect();
         moves.extend(bishop_moves);
 
         // Queen
         let queen_moves: Vec<MoveInfo> = Self::get_queen_moves(pos, move_gen_kind)
             .into_iter()
-            .filter(|m| Self::is_legal(&mut pos, m))
+            .filter(|m| Self::is_legal(pos, m))
             .collect();
         moves.extend(queen_moves);
 
@@ -238,6 +245,9 @@ impl MoveGenerator {
     fn get_queen_moves(pos: &Position, move_gen_kind: &MoveGenKind) -> Vec<MoveInfo> {
         let mut moves: Vec<MoveInfo> = vec![];
         let mut queens = pos.board.pieces[pos.side_to_move.0][Piece::QUEEN].0;
+        if queens == 0 {
+            return moves;
+        }
 
         let occupancy = Self::get_occupancy(pos);
         // Iterate through all the queens
@@ -298,6 +308,21 @@ impl MoveGenerator {
                         move_mask &= move_mask - 1;
                     }
                 }
+                MoveGenKind::OnlyKing => {
+                    move_mask &= pos.board.pieces[pos.opposite_side()][Piece::KING].0;
+                    while move_mask > 0 {
+                        let move_square_index = move_mask.trailing_zeros();
+                        let move_square = 1u64 << move_square_index;
+
+                        moves.push(MoveInfo {
+                            m: Move::Normal(square, move_square),
+                            piece: Piece::QUEEN,
+                            captured_piece: Some(Piece::KING),
+                        });
+
+                        move_mask &= move_mask - 1;
+                    }
+                }
             }
 
             // Go to the next queen
@@ -310,6 +335,9 @@ impl MoveGenerator {
     fn get_bishop_moves(pos: &Position, move_gen_kind: &MoveGenKind) -> Vec<MoveInfo> {
         let mut moves: Vec<MoveInfo> = vec![];
         let mut bishops = pos.board.pieces[pos.side_to_move.0][Piece::BISHOP].0;
+        if bishops == 0 {
+            return moves;
+        }
 
         let occupancy = Self::get_occupancy(pos);
         // Check if we have any bishops
@@ -375,6 +403,21 @@ impl MoveGenerator {
                             move_mask &= move_mask - 1;
                         }
                     }
+                    MoveGenKind::OnlyKing => {
+                        move_mask &= pos.board.pieces[pos.opposite_side()][Piece::KING].0;
+                        while move_mask > 0 {
+                            let move_square_index = move_mask.trailing_zeros();
+                            let move_square = 1u64 << move_square_index;
+
+                            moves.push(MoveInfo {
+                                m: Move::Normal(square, move_square),
+                                piece: Piece::BISHOP,
+                                captured_piece: Some(Piece::KING),
+                            });
+
+                            move_mask &= move_mask - 1;
+                        }
+                    }
                 }
 
                 // Go to the next bishop
@@ -388,6 +431,9 @@ impl MoveGenerator {
     fn get_rook_moves(pos: &Position, move_gen_kind: &MoveGenKind) -> Vec<MoveInfo> {
         let mut moves: Vec<MoveInfo> = vec![];
         let mut rooks = pos.board.pieces[pos.side_to_move.0][Piece::ROOK].0;
+        if rooks == 0 {
+            return moves;
+        }
 
         let occupancy = Self::get_occupancy(pos);
         // Iterate through all the rooks
@@ -447,6 +493,21 @@ impl MoveGenerator {
                         move_mask &= move_mask - 1;
                     }
                 }
+                MoveGenKind::OnlyKing => {
+                    move_mask &= pos.board.pieces[pos.opposite_side()][Piece::KING].0;
+                    while move_mask > 0 {
+                        let move_square_index = move_mask.trailing_zeros();
+                        let move_square = 1u64 << move_square_index;
+
+                        moves.push(MoveInfo {
+                            m: Move::Normal(square, move_square),
+                            piece: Piece::ROOK,
+                            captured_piece: Some(Piece::KING),
+                        });
+
+                        move_mask &= move_mask - 1;
+                    }
+                }
             }
 
             // Go to the next rook
@@ -462,6 +523,7 @@ impl MoveGenerator {
         // We have ONE king
         let square_index = king.trailing_zeros();
         let square = 1u64 << square_index;
+        let occupancy = Self::get_occupancy(pos);
 
         // Get all the possible squares from the lookup table
         let mut move_mask = KING_LOOKUP[square_index as usize];
@@ -497,8 +559,7 @@ impl MoveGenerator {
                 }
             }
             MoveGenKind::OnlySilent => {
-                move_mask &=
-                    !(pos.board.side_pieces[Side::WHITE].0 | pos.board.side_pieces[Side::BLACK].0);
+                move_mask &= !occupancy;
                 while move_mask > 0 {
                     let move_square_index = move_mask.trailing_zeros();
                     let move_square = 1u64 << move_square_index;
@@ -512,57 +573,68 @@ impl MoveGenerator {
                     move_mask &= move_mask - 1;
                 }
             }
+            MoveGenKind::OnlyKing => {
+                move_mask &= pos.board.pieces[pos.opposite_side()][Piece::KING].0;
+                while move_mask > 0 {
+                    let move_square_index = move_mask.trailing_zeros();
+                    let move_square = 1u64 << move_square_index;
+
+                    moves.push(MoveInfo {
+                        m: Move::Normal(square, move_square),
+                        piece: Piece::KING,
+                        captured_piece: Some(Piece::KING),
+                    });
+
+                    move_mask &= move_mask - 1;
+                }
+            }
         }
 
         if *move_gen_kind == MoveGenKind::All || *move_gen_kind == MoveGenKind::OnlySilent {
             // Check castling
             if pos.side_to_move.0 == Side::WHITE {
-                if (pos.state.castling.0 & Castling::WHITE_KING_SIDE) > 0 {
-                    if Self::is_square_empty(pos, Square::F1)
-                        && Self::is_square_empty(pos, Square::G1)
-                    {
-                        moves.push(MoveInfo {
-                            m: Move::Castle(Castling::WHITE_KING_SIDE),
-                            piece: Piece::KING,
-                            captured_piece: None,
-                        });
-                    }
+                if (pos.state.castling.0 & Castling::WHITE_KING_SIDE) > 0
+                    && Self::is_square_empty(occupancy, Square::F1)
+                    && Self::is_square_empty(occupancy, Square::G1)
+                {
+                    moves.push(MoveInfo {
+                        m: Move::Castle(Castling::WHITE_KING_SIDE),
+                        piece: Piece::KING,
+                        captured_piece: None,
+                    });
                 }
-                if (pos.state.castling.0 & Castling::WHITE_QUEEN_SIDE) > 0 {
-                    if Self::is_square_empty(pos, Square::B1)
-                        && Self::is_square_empty(pos, Square::C1)
-                        && Self::is_square_empty(pos, Square::D1)
-                    {
-                        moves.push(MoveInfo {
-                            m: Move::Castle(Castling::WHITE_QUEEN_SIDE),
-                            piece: Piece::KING,
-                            captured_piece: None,
-                        });
-                    }
+                if (pos.state.castling.0 & Castling::WHITE_QUEEN_SIDE) > 0
+                    && Self::is_square_empty(occupancy, Square::B1)
+                    && Self::is_square_empty(occupancy, Square::C1)
+                    && Self::is_square_empty(occupancy, Square::D1)
+                {
+                    moves.push(MoveInfo {
+                        m: Move::Castle(Castling::WHITE_QUEEN_SIDE),
+                        piece: Piece::KING,
+                        captured_piece: None,
+                    });
                 }
             } else {
-                if (pos.state.castling.0 & Castling::BLACK_KING_SIDE) > 0 {
-                    if Self::is_square_empty(pos, Square::F8)
-                        && Self::is_square_empty(pos, Square::G8)
-                    {
-                        moves.push(MoveInfo {
-                            m: Move::Castle(Castling::BLACK_KING_SIDE),
-                            piece: Piece::KING,
-                            captured_piece: None,
-                        });
-                    }
+                if (pos.state.castling.0 & Castling::BLACK_KING_SIDE) > 0
+                    && Self::is_square_empty(occupancy, Square::F8)
+                    && Self::is_square_empty(occupancy, Square::G8)
+                {
+                    moves.push(MoveInfo {
+                        m: Move::Castle(Castling::BLACK_KING_SIDE),
+                        piece: Piece::KING,
+                        captured_piece: None,
+                    });
                 }
-                if (pos.state.castling.0 & Castling::BLACK_QUEEN_SIDE) > 0 {
-                    if Self::is_square_empty(pos, Square::B8)
-                        && Self::is_square_empty(pos, Square::C8)
-                        && Self::is_square_empty(pos, Square::D8)
-                    {
-                        moves.push(MoveInfo {
-                            m: Move::Castle(Castling::BLACK_QUEEN_SIDE),
-                            piece: Piece::KING,
-                            captured_piece: None,
-                        });
-                    }
+                if (pos.state.castling.0 & Castling::BLACK_QUEEN_SIDE) > 0
+                    && Self::is_square_empty(occupancy, Square::B8)
+                    && Self::is_square_empty(occupancy, Square::C8)
+                    && Self::is_square_empty(occupancy, Square::D8)
+                {
+                    moves.push(MoveInfo {
+                        m: Move::Castle(Castling::BLACK_QUEEN_SIDE),
+                        piece: Piece::KING,
+                        captured_piece: None,
+                    });
                 }
             }
         }
@@ -573,6 +645,10 @@ impl MoveGenerator {
     fn get_knight_moves(pos: &Position, move_gen_kind: &MoveGenKind) -> Vec<MoveInfo> {
         let mut moves: Vec<MoveInfo> = vec![];
         let mut knights = pos.board.pieces[pos.side_to_move.0][Piece::KNIGHT].0;
+        if knights == 0 {
+            return moves;
+        }
+
         // Iterate through all the knights
         while knights > 0 {
             let square_index = knights.trailing_zeros();
@@ -631,6 +707,21 @@ impl MoveGenerator {
                         move_mask &= move_mask - 1;
                     }
                 }
+                MoveGenKind::OnlyKing => {
+                    move_mask &= pos.board.pieces[pos.opposite_side()][Piece::KING].0;
+                    while move_mask > 0 {
+                        let move_square_index = move_mask.trailing_zeros();
+                        let move_square = 1u64 << move_square_index;
+
+                        moves.push(MoveInfo {
+                            m: Move::Normal(square, move_square),
+                            piece: Piece::KNIGHT,
+                            captured_piece: Some(Piece::KING),
+                        });
+
+                        move_mask &= move_mask - 1;
+                    }
+                }
             }
             // Go to the next knight
             knights &= knights - 1;
@@ -641,27 +732,42 @@ impl MoveGenerator {
     fn get_pawn_moves(pos: &Position, move_gen_kind: &MoveGenKind) -> Vec<MoveInfo> {
         let mut moves: Vec<MoveInfo> = vec![];
         let mut pawns = pos.board.pieces[pos.side_to_move.0][Piece::PAWN].0;
+        if pawns == 0 {
+            return moves;
+        }
+
+        let is_white = pos.side_to_move.0 == Side::WHITE;
+        let occupancy = Self::get_occupancy(pos);
+
+        let promotions = [Piece::QUEEN, Piece::ROOK, Piece::KNIGHT, Piece::BISHOP];
+        let from_row_for_promotion = if is_white {
+            Square::SEVENTH_ROW
+        } else {
+            Square::SECOND_ROW
+        };
+        // Check if can move forward twice
+        let row = if is_white {
+            Square::SECOND_ROW
+        } else {
+            Square::SEVENTH_ROW
+        };
+
         // Iterate through all the pawns
         while pawns > 0 {
             let square_index = pawns.trailing_zeros();
             let square = 1u64 << square_index;
 
             // Check if promotion is available
-            let from_row_for_promotion = if pos.side_to_move.0 == Side::WHITE {
-                Square::SEVENTH_ROW
-            } else {
-                Square::SECOND_ROW
-            };
             let is_promotion = (square & from_row_for_promotion) > 0;
 
             if *move_gen_kind == MoveGenKind::OnlySilent || *move_gen_kind == MoveGenKind::All {
                 // Check if can move forward
-                let to = if pos.side_to_move.0 == Side::WHITE {
+                let to = if is_white {
                     square.wrapping_shl(8)
                 } else {
                     square.wrapping_shr(8)
                 };
-                let is_front_square_empty = Self::is_square_empty(pos, to);
+                let is_front_square_empty = Self::is_square_empty(occupancy, to);
                 if to != 0 && is_front_square_empty {
                     if !is_promotion {
                         moves.push(MoveInfo {
@@ -691,40 +797,35 @@ impl MoveGenerator {
                             captured_piece: None,
                         });
                     }
-                }
 
-                // Check if can move forward twice
-                let row = if pos.side_to_move.0 == Side::WHITE {
-                    Square::SECOND_ROW
-                } else {
-                    Square::SEVENTH_ROW
-                };
-                if square & row > 0 {
-                    let to2 = if pos.side_to_move.0 == Side::WHITE {
-                        square.wrapping_shl(16)
-                    } else {
-                        square.wrapping_shr(16)
-                    };
-                    if is_front_square_empty && Self::is_square_empty(pos, to2) {
-                        moves.push(MoveInfo {
-                            m: Move::Normal(square, to2),
-                            piece: Piece::PAWN,
-                            captured_piece: None,
-                        });
+                    if square & row > 0 {
+                        let to2 = if is_white {
+                            square.wrapping_shl(16)
+                        } else {
+                            square.wrapping_shr(16)
+                        };
+                        if Self::is_square_empty(occupancy, to2) {
+                            moves.push(MoveInfo {
+                                m: Move::Normal(square, to2),
+                                piece: Piece::PAWN,
+                                captured_piece: None,
+                            });
+                        }
                     }
                 }
             }
 
             if *move_gen_kind == MoveGenKind::OnlyCaptures || *move_gen_kind == MoveGenKind::All {
                 // Check captures
-                let to1 = if pos.side_to_move.0 == Side::WHITE {
-                    if square_index % 8 == 0 {
+                let remainder = square_index % 8 == 0;
+                let to1 = if is_white {
+                    if remainder {
                         Square::NONE
                     } else {
                         square.wrapping_shl(7)
                     }
                 } else {
-                    if square_index % 8 == 0 {
+                    if remainder {
                         Square::NONE
                     } else {
                         square.wrapping_shr(9)
@@ -739,36 +840,23 @@ impl MoveGenerator {
                         });
                     } else {
                         let enemy_piece = Self::get_enemy_piece_in_square(pos, to1, true);
-                        moves.push(MoveInfo {
-                            m: Move::Promotion(square, to1, Piece::QUEEN),
+                        moves.extend(promotions.iter().map(|&promotion| MoveInfo {
+                            m: Move::Promotion(square, to1, promotion),
                             piece: Piece::PAWN,
                             captured_piece: enemy_piece,
-                        });
-                        moves.push(MoveInfo {
-                            m: Move::Promotion(square, to1, Piece::ROOK),
-                            piece: Piece::PAWN,
-                            captured_piece: enemy_piece,
-                        });
-                        moves.push(MoveInfo {
-                            m: Move::Promotion(square, to1, Piece::KNIGHT),
-                            piece: Piece::PAWN,
-                            captured_piece: enemy_piece,
-                        });
-                        moves.push(MoveInfo {
-                            m: Move::Promotion(square, to1, Piece::BISHOP),
-                            piece: Piece::PAWN,
-                            captured_piece: enemy_piece,
-                        });
+                        }));
                     }
                 }
-                let to2 = if pos.side_to_move.0 == Side::WHITE {
-                    if square_index % 8 == 7 {
+
+                let remainder2 = square_index % 8 == 7;
+                let to2 = if is_white {
+                    if remainder2 {
                         Square::NONE
                     } else {
                         square.wrapping_shl(9)
                     }
                 } else {
-                    if square_index % 8 == 7 {
+                    if remainder2 {
                         Square::NONE
                     } else {
                         square.wrapping_shr(7)
@@ -783,38 +871,85 @@ impl MoveGenerator {
                         });
                     } else {
                         let enemy_piece = Self::get_enemy_piece_in_square(pos, to2, true);
-                        moves.push(MoveInfo {
-                            m: Move::Promotion(square, to2, Piece::QUEEN),
+                        moves.extend(promotions.iter().map(|&promotion| MoveInfo {
+                            m: Move::Promotion(square, to2, promotion),
                             piece: Piece::PAWN,
                             captured_piece: enemy_piece,
-                        });
-                        moves.push(MoveInfo {
-                            m: Move::Promotion(square, to2, Piece::ROOK),
-                            piece: Piece::PAWN,
-                            captured_piece: enemy_piece,
-                        });
-                        moves.push(MoveInfo {
-                            m: Move::Promotion(square, to2, Piece::KNIGHT),
-                            piece: Piece::PAWN,
-                            captured_piece: enemy_piece,
-                        });
-                        moves.push(MoveInfo {
-                            m: Move::Promotion(square, to2, Piece::BISHOP),
-                            piece: Piece::PAWN,
-                            captured_piece: enemy_piece,
-                        });
+                        }));
                     }
                 }
 
                 // Check en passant
-                if pos.state.en_passant.0 != Square::NONE {
-                    if Self::is_square_empty(pos, pos.state.en_passant.0)
-                        && (to1 == pos.state.en_passant.0 || to2 == pos.state.en_passant.0)
-                    {
+                if pos.state.en_passant.0 != Square::NONE
+                    // && Self::is_square_empty(occupancy, pos.state.en_passant.0) shouldn't be possibile, do not check this
+                    && (to1 == pos.state.en_passant.0 || to2 == pos.state.en_passant.0)
+                {
+                    moves.push(MoveInfo {
+                        m: Move::EnPassant(square, pos.state.en_passant.0),
+                        piece: Piece::PAWN,
+                        captured_piece: Some(Piece::PAWN),
+                    });
+                }
+            }
+
+            if *move_gen_kind == MoveGenKind::OnlyKing {
+                // Check captures
+                let remainder = square_index % 8 == 0;
+                let to1 = if is_white {
+                    if remainder {
+                        Square::NONE
+                    } else {
+                        square.wrapping_shl(7)
+                    }
+                } else {
+                    if remainder {
+                        Square::NONE
+                    } else {
+                        square.wrapping_shr(9)
+                    }
+                };
+                if to1 != 0 && (pos.board.pieces[pos.opposite_side()][Piece::KING].0 & to1) > 0 {
+                    if !is_promotion {
                         moves.push(MoveInfo {
-                            m: Move::EnPassant(square, pos.state.en_passant.0),
+                            m: Move::Normal(square, to1),
                             piece: Piece::PAWN,
-                            captured_piece: Some(Piece::PAWN),
+                            captured_piece: Some(Piece::KING),
+                        });
+                    } else {
+                        moves.push(MoveInfo {
+                            m: Move::Promotion(square, to1, Piece::QUEEN),
+                            piece: Piece::PAWN,
+                            captured_piece: Some(Piece::KING),
+                        });
+                    }
+                }
+
+                let remainder2 = square_index % 8 == 7;
+                let to2 = if is_white {
+                    if remainder2 {
+                        Square::NONE
+                    } else {
+                        square.wrapping_shl(9)
+                    }
+                } else {
+                    if remainder2 {
+                        Square::NONE
+                    } else {
+                        square.wrapping_shr(7)
+                    }
+                };
+                if to2 != 0 && (pos.board.pieces[pos.opposite_side()][Piece::KING].0 & to2) > 0 {
+                    if !is_promotion {
+                        moves.push(MoveInfo {
+                            m: Move::Normal(square, to2),
+                            piece: Piece::PAWN,
+                            captured_piece: Some(Piece::KING),
+                        });
+                    } else {
+                        moves.push(MoveInfo {
+                            m: Move::Promotion(square, to2, Piece::QUEEN),
+                            piece: Piece::PAWN,
+                            captured_piece: Some(Piece::KING),
                         });
                     }
                 }
@@ -826,9 +961,8 @@ impl MoveGenerator {
         moves
     }
 
-    fn is_square_empty(pos: &Position, square: u64) -> bool {
-        ((pos.board.side_pieces[Side::WHITE].0 | pos.board.side_pieces[Side::BLACK].0) & square)
-            == 0
+    fn is_square_empty(occupancy: u64, square: u64) -> bool {
+        (occupancy & square) == 0
     }
 
     fn get_occupancy(pos: &Position) -> u64 {

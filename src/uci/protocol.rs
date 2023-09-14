@@ -98,7 +98,7 @@ impl UCI {
                 // go
                 else if command.starts_with("go") {
                     let rx = self.rx.clone();
-                    while !self.engine.try_lock().is_ok()
+                    while self.engine.try_lock().is_err()
                         || self.engine.lock().unwrap().is_configuring
                         || self.engine.lock().unwrap().is_searching
                     {

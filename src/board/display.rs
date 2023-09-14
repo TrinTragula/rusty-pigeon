@@ -1,4 +1,4 @@
-use crate::movegen::generator::{MoveGenerator, MoveGenKind, MoveInfo};
+use crate::movegen::generator::{MoveGenKind, MoveGenerator, MoveInfo};
 
 use super::{
     models::{Castling, Engine, Move, Piece, PiecePosition, Position, Side, Square},
@@ -13,11 +13,7 @@ impl fmt::Display for Engine {
         for single_move in moves.iter() {
             available_moves.push_str(&format!("{single_move} "));
         }
-        write!(
-            f,
-            "{}{}",
-            self.position, available_moves
-        )
+        write!(f, "{}{}", self.position, available_moves)
     }
 }
 
@@ -28,11 +24,12 @@ impl fmt::Display for Position {
         let castling = get_castling_info(&self.state.castling);
         let moves = get_move(self.half_move_number);
         let en_passant = get_en_passat(&self.state.en_passant);
-        let since_last_capture = get_since_last_capture(self.state.since_last_capture);
+        let since_last_capture_or_pawn_movement =
+            get_since_last_capture_or_pawn_movement(self.state.since_last_capture_or_pawn_movement);
         let zobrist = format!("Zobrist hash: {:#}", self.zobrist.hash);
         write!(
             f,
-            "{board}\n{side}\n{moves}\t{since_last_capture}\n{castling}\t{en_passant}\n{zobrist}\n"
+            "{board}\n{side}\n{moves}\t{since_last_capture_or_pawn_movement}\n{castling}\t{en_passant}\n{zobrist}\n"
         )
     }
 }
@@ -88,7 +85,9 @@ impl fmt::Display for Move {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Move::Normal(from, to) => write!(f, "{}{}", Square(*from), Square(*to)),
-            Move::Promotion(from, to, piece) => write!(f, "{}{}{}", Square(*from), Square(*to), Piece(*piece)),
+            Move::Promotion(from, to, piece) => {
+                write!(f, "{}{}{}", Square(*from), Square(*to), Piece(*piece))
+            }
             Move::Castle(castling) => write!(f, "{}", Castling(*castling)),
             Move::EnPassant(from, to) => write!(f, "{}{}", Square(*from), Square(*to)),
         }
@@ -99,7 +98,9 @@ impl fmt::Display for MoveInfo {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self.m {
             Move::Normal(from, to) => write!(f, "{}{}", Square(*from), Square(*to)),
-            Move::Promotion(from, to, piece) => write!(f, "{}{}{}", Square(*from), Square(*to), Piece(*piece)),
+            Move::Promotion(from, to, piece) => {
+                write!(f, "{}{}{}", Square(*from), Square(*to), Piece(*piece))
+            }
             Move::Castle(castling) => write!(f, "{}", Castling(*castling)),
             Move::EnPassant(from, to) => write!(f, "{}{}", Square(*from), Square(*to)),
         }
@@ -218,8 +219,8 @@ fn get_en_passat(en_passant: &Square) -> String {
     format!("En passant: {}", en_passant)
 }
 
-fn get_since_last_capture(since_last_capture: usize) -> String {
-    format!("Since capture: {}", since_last_capture)
+fn get_since_last_capture_or_pawn_movement(since_last_capture_or_pawn_movement: usize) -> String {
+    format!("Since capture or pawn movement: {}", since_last_capture_or_pawn_movement)
 }
 
 pub fn print_bitboard(bitboard: u64) -> String {
@@ -227,5 +228,5 @@ pub fn print_bitboard(bitboard: u64) -> String {
     display_pieces(bitboard, &mut board, "1");
     board = board.replace('!', "_");
     board = board.replace('?', "_");
-    board 
+    board
 }
